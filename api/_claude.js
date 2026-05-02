@@ -7,7 +7,7 @@ function getClient() {
 export async function analyzeResume(rawText) {
   const client = getClient()
   const res = await client.messages.create({
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-4-20250514',
     max_tokens: 2000,
     messages: [{
       role: 'user',
@@ -53,7 +53,7 @@ Recent experience: ${(profile.experience ?? []).slice(0, 3).map(e => `${e.title}
   ).join('\n')
 
   const res = await client.messages.create({
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-4-20250514',
     max_tokens: 3000,
     messages: [{
       role: 'user',
@@ -72,7 +72,7 @@ Return ONLY a JSON array, one object per job in same order:
 export async function generateCoverLetter(profile, job) {
   const client = getClient()
   const res = await client.messages.create({
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-4-20250514',
     max_tokens: 800,
     messages: [{
       role: 'user',
@@ -96,7 +96,7 @@ Output letter text only.`
 export async function getResumeTips(profile, role) {
   const client = getClient()
   const res = await client.messages.create({
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-4-20250514',
     max_tokens: 500,
     messages: [{
       role: 'user',
