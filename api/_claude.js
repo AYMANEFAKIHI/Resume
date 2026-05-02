@@ -11,7 +11,7 @@ async function groq(prompt, maxTokens = 2000) {
     body: JSON.stringify({
       model: MODEL,
       max_tokens: maxTokens,
-      temperature: 0.2,
+      temperature: 0.1,
       messages: [{ role: 'user', content: prompt }],
     }),
   })
@@ -23,109 +23,98 @@ async function groq(prompt, maxTokens = 2000) {
   return data.choices[0].message.content
 }
 
-function cleanJSON(text) {
-  // Remove markdown code blocks
-  let clean = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-  // Find the first { or [ and last } or ]
-  const firstBrace = Math.min(
-    clean.indexOf('{') === -1 ? Infinity : clean.indexOf('{'),
-    clean.indexOf('[') === -1 ? Infinity : clean.indexOf('[')
+function robustParse(text) {
+  // Step 1: extract JSON block
+  let s = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+  const fb = Math.min(
+    s.indexOf('{') >= 0 ? s.indexOf('{') : Infinity,
+    s.indexOf('[') >= 0 ? s.indexOf('[') : Infinity
   )
-  const lastBrace = Math.max(clean.lastIndexOf('}'), clean.lastIndexOf(']'))
-  if (firstBrace !== Infinity && lastBrace !== -1) {
-    clean = clean.slice(firstBrace, lastBrace + 1)
-  }
-  // Fix unicode escape sequences that Groq sometimes produces incorrectly
-  clean = clean.replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u')
-  // Remove control characters
-  clean = clean.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
-  return clean
-}
+  const lb = Math.max(s.lastIndexOf('}'), s.lastIndexOf(']'))
+  if (fb < Infinity && lb >= 0) s = s.slice(fb, lb + 1)
 
-function safeParseJSON(text) {
+  // Step 2: aggressive sanitization
+  // Remove all non-printable characters except tab, newline, carriage return
+  s = s.replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\uFFFF]/g, '')
+  // Fix bad unicode escapes like \u{XXXX} or \uXX (not 4 hex digits)
+  s = s.replace(/\\u([0-9a-fA-F]{1,3})(?![0-9a-fA-F])/g, (_, h) => '\\u' + h.padStart(4, '0'))
+  s = s.replace(/\\u\{([0-9a-fA-F]+)\}/g, (_, h) => {
+    const code = parseInt(h, 16)
+    return code <= 0xFFFF ? String.fromCharCode(code) : '?'
+  })
+  // Fix unescaped backslashes (not followed by valid escape chars)
+  s = s.replace(/\\([^"\\\/bfnrtu])/g, '$1')
+
   try {
-    return JSON.parse(cleanJSON(text))
-  } catch (e) {
-    // Last resort: use a more lenient approach
+    return JSON.parse(s)
+  } catch(e) {
+    // Step 3: last resort — encode to bytes and back to strip problem chars
+    const encoded = encodeURIComponent(s)
+    const decoded = decodeURIComponent(encoded)
     try {
-      // Replace any remaining problematic sequences
-      const sanitized = cleanJSON(text)
-        .replace(/\\'/g, "'")
-        .replace(/([^\\])\\([^"\\\/bfnrtu])/g, '$1\\\\$2')
-      return JSON.parse(sanitized)
-    } catch (e2) {
-      throw new Error(`JSON parse failed: ${e2.message}. Raw: ${text.slice(0, 200)}`)
+      return JSON.parse(decoded)
+    } catch(e2) {
+      throw new Error(`Parse failed: ${e2.message} | snippet: ${s.slice(0, 100)}`)
     }
   }
 }
 
 export async function analyzeResume(rawText) {
-  const text = await groq(`You are an expert resume parser. Extract structured information from this resume.
-Return ONLY valid JSON, no markdown, no backticks, no explanation, no unicode escapes.
-Use only plain ASCII characters in your response.
-{
-  "full_name": "string",
-  "email": "string",
-  "phone": "string",
-  "location": "string",
-  "title": "string",
-  "summary": "string (2 sentences max, ASCII only)",
-  "skills": ["array of up to 18 skills"],
-  "experience_years": 0,
-  "education": { "degree": "string", "institution": "string", "year": 2024, "field": "string" },
-  "experience": [{ "title": "string", "company": "string", "duration": "string", "description": "string", "technologies": [] }],
-  "preferred_roles": ["4-5 role types"],
-  "preferred_locations": ["Remote"],
-  "linkedin_url": "",
-  "github_url": "",
-  "portfolio_url": ""
-}
+  // Pre-sanitize input too — remove problematic chars from the CV text
+  const safeText = rawText
+    .replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\uFFFF]/g, ' ')
+    .slice(0, 4000)
 
-RESUME:
-${rawText.slice(0, 4000)}`, 2000)
+  const text = await groq(`Parse this resume and return ONLY a JSON object. No markdown. No backticks. No explanation.
+Use simple ASCII text only in all string values.
 
-  return safeParseJSON(text)
+Required JSON structure:
+{"full_name":"","email":"","phone":"","location":"","title":"","summary":"","skills":[],"experience_years":0,"education":{"degree":"","institution":"","year":0,"field":""},"experience":[],"preferred_roles":[],"preferred_locations":["Remote"],"linkedin_url":"","github_url":"","portfolio_url":""}
+
+RESUME TEXT:
+${safeText}`, 1500)
+
+  return robustParse(text)
 }
 
 export async function scoreJobMatches(profile, jobs) {
-  const profileSummary = `Candidate: ${profile.full_name}
-Skills: ${profile.skills.join(', ')}
-Experience: ${profile.experience_years} years
-Education: ${profile.education?.degree} in ${profile.education?.field}
-Preferred roles: ${profile.preferred_roles.join(', ')}`
-
   const jobsList = jobs.map((j, i) =>
-    `${i}: "${j.title}" at ${j.company} — ${(j.description ?? '').slice(0, 200)}`
+    `${i}: "${j.title}" at ${j.company} - ${(j.description ?? '').slice(0, 150)}`
   ).join('\n')
 
-  const text = await groq(`Score candidate vs internships. Return ONLY a JSON array, no markdown.
-${profileSummary}
-JOBS:
-${jobsList}
-Return: [{"score":0-100,"match_reasons":["reason"],"mismatch_reasons":["gap"]}]`, 3000)
+  const text = await groq(`Score these internships for this candidate. Return ONLY a JSON array.
 
-  return safeParseJSON(text)
+Candidate skills: ${profile.skills.join(', ')}
+Experience: ${profile.experience_years} years
+Education: ${profile.education?.degree} in ${profile.education?.field}
+
+Jobs:
+${jobsList}
+
+Return exactly: [{"score":50,"match_reasons":["reason"],"mismatch_reasons":["gap"]}]
+One object per job. No markdown.`, 2000)
+
+  return robustParse(text)
 }
 
 export async function generateCoverLetter(profile, job) {
-  return groq(`Write a professional cover letter for this internship. 3 short paragraphs. Human tone.
-Do NOT start with "I am writing to express my interest". No fluff. ASCII only.
+  return groq(`Write a 3-paragraph cover letter for this internship. Professional but human tone.
+Do not start with "I am writing". No fluff.
 
-CANDIDATE: ${profile.full_name}
-SKILLS: ${profile.skills.slice(0, 10).join(', ')}
-EDUCATION: ${profile.education?.degree} at ${profile.education?.institution}
-EXPERIENCE: ${(profile.experience ?? []).slice(0, 2).map(e => `${e.title} at ${e.company}`).join(' | ')}
+Applicant: ${profile.full_name}
+Skills: ${profile.skills.slice(0, 8).join(', ')}
+Education: ${profile.education?.degree} at ${profile.education?.institution}
 
-ROLE: ${job.title} at ${job.company}
-DESCRIPTION: ${(job.description ?? '').slice(0, 500)}
+Job: ${job.title} at ${job.company}
+Description: ${(job.description ?? '').slice(0, 400)}
 
-Output the letter text only.`, 700)
+Write the letter body only.`, 600)
 }
 
 export async function getResumeTips(profile, role) {
-  const text = await groq(`Give 4 actionable tips to improve this resume for "${role}" internships.
-Return ONLY a JSON array of 4 strings. No markdown.
-Skills: ${profile.skills.join(', ')}
-Experience: ${profile.experience_years} years`, 400)
-  return safeParseJSON(text)
+  const text = await groq(`List 4 tips to improve this resume for "${role}" internships.
+Return ONLY: ["tip1","tip2","tip3","tip4"]
+No markdown. No explanation.
+Skills: ${profile.skills.join(', ')}`, 300)
+  return robustParse(text)
 }
