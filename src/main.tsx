@@ -1,0 +1,70 @@
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster } from 'react-hot-toast'
+import { AuthProvider, useAuth } from './hooks/useAuth'
+import AuthPage from './pages/AuthPage'
+import DashboardPage from './pages/DashboardPage'
+import ResumePage from './pages/ResumePage'
+import JobsPage from './pages/JobsPage'
+import TrackerPage from './pages/TrackerPage'
+import Layout from './components/Layout'
+import './index.css'
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth()
+  if (loading) return (
+    <div className="min-h-screen bg-bg flex items-center justify-center">
+      <div className="flex gap-2">
+        {[0,1,2].map(i => (
+          <div key={i} className="w-2 h-2 rounded-full bg-accent animate-pulse-dot"
+            style={{ animationDelay: `${i * 0.2}s` }} />
+        ))}
+      </div>
+    </div>
+  )
+  return user ? <>{children}</> : <Navigate to="/auth" replace />
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="/" element={
+            <ProtectedRoute>
+              <Layout />
+            </ProtectedRoute>
+          }>
+            <Route index element={<DashboardPage />} />
+            <Route path="resume" element={<ResumePage />} />
+            <Route path="jobs" element={<JobsPage />} />
+            <Route path="tracker" element={<TrackerPage />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: '#1a1a24',
+            color: '#f0eee8',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '12px',
+            fontSize: '14px',
+          },
+          success: { iconTheme: { primary: '#34d399', secondary: '#0a0a0f' } },
+          error: { iconTheme: { primary: '#f87171', secondary: '#0a0a0f' } },
+        }}
+      />
+    </AuthProvider>
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+)
