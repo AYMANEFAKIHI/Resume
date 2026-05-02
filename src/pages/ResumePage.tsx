@@ -1,14 +1,59 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, FileText, CheckCircle, Loader2, Edit3, Save, X, Plus } from 'lucide-react'
-import { uploadResume, uploadResumeText, getProfile, updateProfile } from '../lib/api'
+import { uploadResumeText, getProfile, updateProfile } from '../lib/api'
 import type { CandidateProfile } from '../types'
 import toast from 'react-hot-toast'
+
+// Extract text from PDF using PDF.js (runs in browser, no server needed)
+async function extractPDFText(file: File): Promise<string> {
+  const pdfjsLib = await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js' as any)
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+
+  const arrayBuffer = await file.arrayBuffer()
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+  let fullText = ''
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i)
+    const content = await page.getTextContent()
+    const pageText = content.items.map((item: any) => item.str).join(' ')
+    fullText += pageText + '\n'
+  }
+
+  return fullText.trim()
+}
+
+// Extract text from DOCX using mammoth (CDN)
+async function extractDOCXText(file: File): Promise<string> {
+  const mammoth = await import('https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.esm.js' as any)
+  const arrayBuffer = await file.arrayBuffer()
+  const result = await mammoth.extractRawText({ arrayBuffer })
+  return result.value.trim()
+}
+
+async function extractFileText(file: File): Promise<string> {
+  if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+    return extractPDFText(file)
+  }
+  if (
+    file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    file.name.endsWith('.docx')
+  ) {
+    return extractDOCXText(file)
+  }
+  if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+    return file.text()
+  }
+  throw new Error('Unsupported file type. Please upload PDF, DOCX, or TXT.')
+}
 
 export default function ResumePage() {
   const [profile, setProfile] = useState<CandidateProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [analyzing, setAnalyzing] = useState(false)
+  const [extracting, setExtracting] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [editMode, setEditMode] = useState(false)
   const [editData, setEditData] = useState<Partial<CandidateProfile>>({})
@@ -24,13 +69,31 @@ export default function ResumePage() {
   const onDrop = useCallback(async (files: File[]) => {
     const file = files[0]
     if (!file) return
+
+    setExtracting(true)
+    let text = ''
+    try {
+      text = await extractFileText(file)
+      if (text.length < 50) throw new Error('Could not extract enough text from file')
+      toast.success('File read! Analyzing with AI...')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to read file')
+      setExtracting(false)
+      return
+    }
+    setExtracting(false)
     setAnalyzing(true)
     try {
-      const res = await uploadResume(file)
+      // Clean text before sending
+      const cleanText = text
+        .replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u024F]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      const res = await uploadResumeText(cleanText)
       setProfile(res.profile)
       toast.success('Resume analyzed!')
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Upload failed')
+      toast.error(e instanceof Error ? e.message : 'Analysis failed')
     } finally {
       setAnalyzing(false)
     }
@@ -51,7 +114,11 @@ export default function ResumePage() {
     if (pasteText.trim().length < 50) { toast.error('Please paste more resume content'); return }
     setAnalyzing(true)
     try {
-      const res = await uploadResumeText(pasteText)
+      const cleanText = pasteText
+        .replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u024F]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      const res = await uploadResumeText(cleanText)
       setProfile(res.profile)
       setPasteText('')
       toast.success('Resume analyzed!')
@@ -114,8 +181,7 @@ export default function ResumePage() {
         <p className="text-white/40 text-sm">Upload your resume and let AI extract your full profile</p>
       </div>
 
-      {/* Upload zone */}
-      {!analyzing && (
+      {!analyzing && !extracting && (
         <div className="mb-8">
           <div
             {...getRootProps()}
@@ -143,7 +209,7 @@ export default function ResumePage() {
             <textarea
               value={pasteText}
               onChange={e => setPasteText(e.target.value)}
-              placeholder="Paste your resume text here — name, skills, experience, education…"
+              placeholder="Paste your resume text here..."
               className="input min-h-[140px] resize-y"
             />
             <div className="flex justify-end mt-3">
@@ -159,7 +225,19 @@ export default function ResumePage() {
         </div>
       )}
 
-      {/* Analyzing state */}
+      {extracting && (
+        <div className="card text-center py-16 mb-8">
+          <div className="flex justify-center gap-2 mb-6">
+            {[0,1,2].map(i => (
+              <div key={i} className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse-dot"
+                style={{ animationDelay: `${i * 0.2}s` }} />
+            ))}
+          </div>
+          <h3 className="font-display font-semibold text-xl mb-2">Reading your file...</h3>
+          <p className="text-white/40 text-sm">Extracting text from your resume</p>
+        </div>
+      )}
+
       {analyzing && (
         <div className="card text-center py-16 mb-8">
           <div className="flex justify-center gap-2 mb-6">
@@ -168,13 +246,12 @@ export default function ResumePage() {
                 style={{ animationDelay: `${i * 0.2}s` }} />
             ))}
           </div>
-          <h3 className="font-display font-semibold text-xl mb-2">Claude is analyzing your resume…</h3>
-          <p className="text-white/40 text-sm">Extracting skills, experience, and building your profile</p>
+          <h3 className="font-display font-semibold text-xl mb-2">Analyzing your resume...</h3>
+          <p className="text-white/40 text-sm">AI is extracting your skills, experience, and profile</p>
         </div>
       )}
 
-      {/* Profile display */}
-      {profile && !analyzing && (
+      {profile && !analyzing && !extracting && (
         <div className="animate-fade-up">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium">
@@ -192,13 +269,11 @@ export default function ResumePage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            {/* Left — identity */}
             <div className="space-y-4">
               <div className="card">
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-accent to-accent2 flex items-center justify-center font-display font-bold text-xl text-white mb-4">
-                  {profile.full_name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                  {profile.full_name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()}
                 </div>
-
                 {editMode ? (
                   <div className="space-y-3">
                     {([
@@ -234,6 +309,7 @@ export default function ResumePage() {
                       {profile.location && <div>📍 {profile.location}</div>}
                       {profile.linkedin_url && <div>🔗 LinkedIn</div>}
                       {profile.github_url && <div>⚙ GitHub</div>}
+                      {profile.portfolio_url && <div>🌐 Portfolio</div>}
                     </div>
                   </>
                 )}
@@ -248,14 +324,11 @@ export default function ResumePage() {
               </div>
             </div>
 
-            {/* Right — skills + experience */}
             <div className="lg:col-span-2 space-y-4">
               <div className="card">
-                <div className="section-label">
-                  Skills ({editMode ? editData.skills?.length : profile.skills.length})
-                </div>
+                <div className="section-label">Skills ({editMode ? editData.skills?.length : profile.skills.length})</div>
                 <div className="flex flex-wrap gap-2 mb-3">
-                  {(editMode ? editData.skills ?? [] : profile.skills).map(s => (
+                  {(editMode ? editData.skills ?? [] : profile.skills).map((s: string) => (
                     <span key={s} className="tag flex items-center gap-1">
                       {s}
                       {editMode && (
@@ -270,7 +343,7 @@ export default function ResumePage() {
                   <div className="flex gap-2">
                     <input
                       className="input py-2 text-sm flex-1"
-                      placeholder="Add skill…"
+                      placeholder="Add skill..."
                       value={newSkill}
                       onChange={e => setNewSkill(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && addSkill()}
@@ -283,14 +356,14 @@ export default function ResumePage() {
               <div className="card">
                 <div className="section-label">Experience</div>
                 <div className="space-y-4">
-                  {profile.experience.map((exp, i) => (
+                  {profile.experience.map((exp: any, i: number) => (
                     <div key={i} className="pb-4 border-b border-white/[0.06] last:border-0 last:pb-0">
                       <div className="font-medium text-sm">{exp.title}</div>
                       <div className="text-accent2 text-sm">{exp.company} · {exp.duration}</div>
                       <div className="text-white/40 text-sm mt-1 leading-relaxed">{exp.description}</div>
                       {exp.technologies && exp.technologies.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
-                          {exp.technologies.map(t => <span key={t} className="tag text-xs">{t}</span>)}
+                          {exp.technologies.map((t: string) => <span key={t} className="tag text-xs">{t}</span>)}
                         </div>
                       )}
                     </div>
@@ -304,7 +377,7 @@ export default function ResumePage() {
               <div className="card">
                 <div className="section-label">Target roles</div>
                 <div className="flex flex-wrap gap-2">
-                  {profile.preferred_roles.map(r => <span key={r} className="tag-accent">{r}</span>)}
+                  {profile.preferred_roles.map((r: string) => <span key={r} className="tag-accent">{r}</span>)}
                 </div>
               </div>
             </div>
@@ -312,8 +385,7 @@ export default function ResumePage() {
         </div>
       )}
 
-      {/* Empty state */}
-      {!profile && !analyzing && (
+      {!profile && !analyzing && !extracting && (
         <div className="text-center py-16 text-white/30">
           <FileText size={40} className="mx-auto mb-4 opacity-20" />
           <p>Upload your resume above to get started</p>
