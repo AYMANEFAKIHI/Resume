@@ -13,7 +13,7 @@ export default function Footer() {
         </div>
 
         <div className="text-center">
-          Developed with ❤️ by{' '}
+          Developed by{' '}
           <a href="https://www.linkedin.com/in/aymane-fakihi-9a3435335/"
             target="_blank" rel="noopener noreferrer"
             className="text-accent2/70 hover:text-accent2 transition-colors font-medium">
