@@ -1,34 +1,36 @@
 import { useEffect, useState } from 'react'
-import { Search, Loader2, Zap, MapPin, ExternalLink, CheckCircle, ChevronDown, ChevronUp, RefreshCw, Globe, Flag } from 'lucide-react'
+import { Search, Loader2, Zap, MapPin, ExternalLink, CheckCircle, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
 import { getJobs, searchJobs, generateCoverLetter, applyToJob, getApplications } from '../lib/api'
 import type { JobMatch, Application } from '../types'
 import CoverLetterModal from '../components/CoverLetterModal'
 import toast from 'react-hot-toast'
 
-const FILTERS = [
-  { key: 'all',           label: 'All',           icon: '🌐' },
-  { key: 'morocco',       label: 'Morocco 🇲🇦',    icon: '🇲🇦' },
-  { key: 'rekrute',       label: 'Rekrute',        icon: '🔴' },
-  { key: 'emploima',      label: 'Emploi.ma',      icon: '🟠' },
-  { key: 'linkedin',      label: 'LinkedIn',       icon: '🔵' },
-  { key: 'remote',        label: 'Remote 🌍',      icon: '🌍' },
-  { key: 'top',           label: '🔥 Top 90+',     icon: '🔥' },
-  { key: 'remoteok',      label: 'RemoteOK',       icon: '⚡' },
-  { key: 'arbeitnow',     label: 'Arbeitnow',      icon: '🟢' },
-]
-
-const MOROCCAN_SOURCES = ['rekrute', 'emploima', 'marocannonces', 'linkedin']
-
 const SOURCE_CONFIG: Record<string, { color: string; label: string }> = {
-  rekrute:       { color: 'bg-red-500/10 text-red-400 border-red-400/20',       label: 'Rekrute.ma' },
-  emploima:      { color: 'bg-orange-500/10 text-orange-400 border-orange-400/20', label: 'Emploi.ma' },
-  marocannonces: { color: 'bg-amber-500/10 text-amber-400 border-amber-400/20', label: 'MarocAnnonces' },
-  linkedin:      { color: 'bg-blue-500/10 text-blue-400 border-blue-400/20',    label: 'LinkedIn' },
-  remoteok:      { color: 'bg-purple-500/10 text-purple-400 border-purple-400/20', label: 'RemoteOK' },
-  arbeitnow:     { color: 'bg-emerald-500/10 text-emerald-400 border-emerald-400/20', label: 'Arbeitnow' },
-  indeed:        { color: 'bg-blue-500/10 text-blue-300 border-blue-300/20',    label: 'Indeed' },
-  wellfound:     { color: 'bg-teal-500/10 text-teal-400 border-teal-400/20',    label: 'Wellfound' },
+  rekrute:        { color: 'bg-red-500/10 text-red-400 border-red-400/20',          label: 'Rekrute.ma'       },
+  emploima:       { color: 'bg-orange-500/10 text-orange-400 border-orange-400/20', label: 'Emploi.ma'        },
+  stagiairema:    { color: 'bg-pink-500/10 text-pink-400 border-pink-400/20',        label: 'Stagiaire.ma'     },
+  tanmiama:       { color: 'bg-green-500/10 text-green-400 border-green-400/20',     label: 'Tanmia.ma'        },
+  optioncarriere: { color: 'bg-yellow-500/10 text-yellow-400 border-yellow-400/20',  label: 'OptionCarriere'   },
+  glassdoor:      { color: 'bg-teal-500/10 text-teal-400 border-teal-400/20',        label: 'Glassdoor'        },
+  remoteok:       { color: 'bg-purple-500/10 text-purple-400 border-purple-400/20',  label: 'RemoteOK'         },
+  arbeitnow:      { color: 'bg-emerald-500/10 text-emerald-400 border-emerald-400/20', label: 'Arbeitnow'      },
+  linkedin:       { color: 'bg-blue-500/10 text-blue-400 border-blue-400/20',        label: 'LinkedIn'         },
+  indeed:         { color: 'bg-blue-500/10 text-blue-300 border-blue-300/20',        label: 'Indeed'           },
 }
+
+const MOROCCAN_SOURCES = ['rekrute', 'emploima', 'stagiairema', 'tanmiama', 'optioncarriere', 'linkedin', 'marocannonces']
+const MOROCCAN_CITIES = ['Casablanca', 'Rabat', 'Marrakech', 'Fès', 'Tanger', 'Agadir', 'Meknès', 'Oujda', 'Kénitra', 'Tétouan']
+
+const SOURCE_FILTERS = [
+  { key: 'rekrute',        label: 'Rekrute.ma'     },
+  { key: 'emploima',       label: 'Emploi.ma'      },
+  { key: 'stagiairema',    label: 'Stagiaire.ma'   },
+  { key: 'tanmiama',       label: 'Tanmia.ma'      },
+  { key: 'optioncarriere', label: 'OptionCarriere' },
+  { key: 'glassdoor',      label: 'Glassdoor'      },
+  { key: 'remoteok',       label: 'RemoteOK'       },
+  { key: 'arbeitnow',      label: 'Arbeitnow'      },
+]
 
 function ScoreRing({ score }: { score: number }) {
   const r = 18, circ = 2 * Math.PI * r
@@ -49,14 +51,12 @@ function ScoreRing({ score }: { score: number }) {
   )
 }
 
-function isMoroccan(source: string) {
-  return MOROCCAN_SOURCES.includes(source)
-}
-
 export default function JobsPage() {
   const [jobs, setJobs] = useState<JobMatch[]>([])
   const [applications, setApplications] = useState<Application[]>([])
-  const [filter, setFilter] = useState('all')
+  const [activeTab, setActiveTab] = useState<'all' | 'morocco' | 'remote' | 'top'>('all')
+  const [cityFilter, setCityFilter] = useState<string | null>(null)
+  const [sourceFilter, setSourceFilter] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [searching, setSearching] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -107,7 +107,7 @@ export default function JobsPage() {
     try {
       const res = await applyToJob(job.job_id, coverLetter)
       setApplications(prev => [...prev, res.application])
-      toast.success(`Applied to ${job.job.title}! Page opened in new tab.`)
+      toast.success(`Applied! Job page opened in new tab.`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Apply failed')
     } finally {
@@ -115,19 +115,34 @@ export default function JobsPage() {
     }
   }
 
+  function shareJob(job: JobMatch) {
+    const text = `Check out this internship: ${job.job.title} at ${job.job.company} — ${job.job.apply_url}`
+    if (navigator.share) {
+      navigator.share({ title: job.job.title, text, url: job.job.apply_url })
+    } else {
+      navigator.clipboard.writeText(text)
+      toast.success('Job link copied!')
+    }
+  }
+
   const appliedJobIds = new Set(applications.map(a => a.job_id))
+  const moroccanJobs = jobs.filter(j => MOROCCAN_SOURCES.includes(j.job.source))
+  const remoteJobs = jobs.filter(j => j.job.location.toLowerCase().includes('remote'))
+  const topJobs = jobs.filter(j => j.match_score >= 80)
 
-  const filtered = jobs.filter(j => {
-    if (filter === 'top') return j.match_score >= 90
-    if (filter === 'remote') return j.job.location.toLowerCase().includes('remote')
-    if (filter === 'morocco') return isMoroccan(j.job.source)
-    if (FILTERS.find(f => f.key === filter && !['all','top','remote','morocco'].includes(f.key)))
-      return j.job.source === filter
-    return true
-  })
+  let filtered = jobs
+  if (activeTab === 'morocco') filtered = moroccanJobs
+  else if (activeTab === 'remote') filtered = remoteJobs
+  else if (activeTab === 'top') filtered = topJobs
 
-  const moroccanCount = jobs.filter(j => isMoroccan(j.job.source)).length
-  const remoteCount = jobs.filter(j => j.job.location.toLowerCase().includes('remote')).length
+  if (cityFilter) {
+    filtered = filtered.filter(j =>
+      j.job.location.toLowerCase().includes(cityFilter.toLowerCase())
+    )
+  }
+  if (sourceFilter) {
+    filtered = filtered.filter(j => j.job.source === sourceFilter)
+  }
 
   if (loading) return (
     <div className="flex items-center justify-center h-screen">
@@ -141,54 +156,97 @@ export default function JobsPage() {
       <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
         <div>
           <h1 className="font-display font-bold text-3xl mb-1">Internship matches</h1>
-          <div className="flex items-center gap-4 text-sm text-white/40 mt-1">
+          <div className="flex items-center gap-4 text-sm text-white/40 mt-1 flex-wrap">
             <span>{filtered.length} positions</span>
-            {moroccanCount > 0 && <span className="text-amber-400">🇲🇦 {moroccanCount} au Maroc</span>}
-            {remoteCount > 0 && <span className="text-emerald-400">🌍 {remoteCount} Remote</span>}
+            {moroccanJobs.length > 0 && <span className="text-amber-400">🇲🇦 {moroccanJobs.length} au Maroc</span>}
+            {remoteJobs.length > 0 && <span className="text-emerald-400">🌍 {remoteJobs.length} Remote</span>}
+            {topJobs.length > 0 && <span className="text-accent2">🔥 {topJobs.length} top matches</span>}
           </div>
         </div>
         <button onClick={handleSearch} disabled={searching} className="btn btn-primary">
           {searching
             ? <><Loader2 size={15} className="animate-spin" /> Searching…</>
-            : jobs.length > 0
-              ? <><RefreshCw size={15} /> Refresh</>
-              : <><Search size={15} /> Find internships</>
+            : jobs.length > 0 ? <><RefreshCw size={15} /> Refresh</> : <><Search size={15} /> Find internships</>
           }
         </button>
       </div>
 
       {/* Searching state */}
       {searching && (
-        <div className="card text-center py-16 mb-6">
-          <div className="flex justify-center gap-2 mb-6">
+        <div className="card text-center py-14 mb-6">
+          <div className="flex justify-center gap-2 mb-5">
             {[0,1,2].map(i => (
               <div key={i} className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse-dot"
                 style={{ animationDelay: `${i * 0.2}s` }} />
             ))}
           </div>
           <h3 className="font-display font-semibold text-xl mb-3">Searching across all platforms…</h3>
-          <div className="flex flex-wrap justify-center gap-2 text-xs text-white/30">
-            {['Rekrute.ma 🇲🇦', 'Emploi.ma 🇲🇦', 'LinkedIn 🇲🇦', 'RemoteOK 🌍', 'Arbeitnow 🌍'].map(s => (
+          <div className="flex flex-wrap justify-center gap-2 text-xs text-white/25 mb-4">
+            {['Rekrute.ma 🇲🇦','Emploi.ma 🇲🇦','Stagiaire.ma 🇲🇦','Tanmia.ma 🇲🇦','OptionCarriere 🇲🇦','Glassdoor 🌍','RemoteOK 🌍','Arbeitnow 🌍'].map(s => (
               <span key={s} className="px-3 py-1 rounded-full bg-surface2 border border-white/[0.07]">{s}</span>
             ))}
           </div>
-          <p className="text-white/30 text-sm mt-4">Scoring each match with AI — takes ~30s</p>
+          <p className="text-white/25 text-sm">AI is scoring each match — takes ~30s</p>
         </div>
       )}
 
       {/* Filters */}
       {jobs.length > 0 && !searching && (
-        <div className="flex gap-2 flex-wrap mb-6">
-          {FILTERS.map(f => (
-            <button key={f.key} onClick={() => setFilter(f.key)}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all border
-                ${filter === f.key
-                  ? 'bg-accent/15 border-accent/30 text-accent2'
-                  : 'bg-surface border-white/[0.07] text-white/40 hover:text-white hover:border-white/20'
-                }`}>
-              {f.label}
+        <div className="space-y-3 mb-6">
+          {/* Main tabs */}
+          <div className="flex gap-2 flex-wrap">
+            {[
+              { key: 'all',     label: `All (${jobs.length})`             },
+              { key: 'morocco', label: `🇲🇦 Morocco (${moroccanJobs.length})` },
+              { key: 'remote',  label: `🌍 Remote (${remoteJobs.length})` },
+              { key: 'top',     label: `🔥 Top 80+ (${topJobs.length})`   },
+            ].map(tab => (
+              <button key={tab.key} onClick={() => { setActiveTab(tab.key as any); setCityFilter(null); setSourceFilter(null) }}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all border
+                  ${activeTab === tab.key
+                    ? 'bg-accent/15 border-accent/30 text-accent2'
+                    : 'bg-surface border-white/[0.07] text-white/40 hover:text-white hover:border-white/20'
+                  }`}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Moroccan city filters — shown when Morocco tab active */}
+          {activeTab === 'morocco' && (
+            <div className="flex gap-2 flex-wrap items-center">
+              <span className="text-white/25 text-xs">City:</span>
+              <button onClick={() => setCityFilter(null)}
+                className={`px-3 py-1 rounded-full text-xs border transition-all
+                  ${!cityFilter ? 'bg-amber-400/15 border-amber-400/30 text-amber-400' : 'bg-surface border-white/[0.07] text-white/30 hover:text-white'}`}>
+                All cities
+              </button>
+              {MOROCCAN_CITIES.map(city => (
+                <button key={city} onClick={() => setCityFilter(cityFilter === city ? null : city)}
+                  className={`px-3 py-1 rounded-full text-xs border transition-all
+                    ${cityFilter === city ? 'bg-amber-400/15 border-amber-400/30 text-amber-400' : 'bg-surface border-white/[0.07] text-white/30 hover:text-white'}`}>
+                  {city}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Source filters */}
+          <div className="flex gap-2 flex-wrap items-center">
+            <span className="text-white/25 text-xs">Source:</span>
+            <button onClick={() => setSourceFilter(null)}
+              className={`px-3 py-1 rounded-full text-xs border transition-all
+                ${!sourceFilter ? 'bg-white/10 border-white/20 text-white/60' : 'bg-surface border-white/[0.07] text-white/30 hover:text-white'}`}>
+              All
             </button>
-          ))}
+            {SOURCE_FILTERS.map(s => (
+              <button key={s.key} onClick={() => setSourceFilter(sourceFilter === s.key ? null : s.key)}
+                className={`px-3 py-1 rounded-full text-xs border transition-all
+                  ${sourceFilter === s.key ? 'bg-accent/15 border-accent/30 text-accent2' : 'bg-surface border-white/[0.07] text-white/30 hover:text-white'}`}>
+                {s.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -201,20 +259,21 @@ export default function JobsPage() {
             const isApplying = applying === match.id
             const isGenerating = generatingCL === match.id
             const srcCfg = SOURCE_CONFIG[match.job.source] ?? { color: 'bg-surface2 text-white/40 border-white/10', label: match.job.source }
-            const moroccan = isMoroccan(match.job.source)
+            const isMorocco = MOROCCAN_SOURCES.includes(match.job.source)
 
             return (
               <div key={match.id}
-                className={`card transition-all duration-200 ${isApplied ? 'border-emerald-400/20 bg-emerald-400/[0.02]' : 'hover:border-white/15'}
-                  ${moroccan ? 'border-l-2 border-l-amber-400/40' : ''}`}>
+                className={`card transition-all duration-200
+                  ${isApplied ? 'border-emerald-400/20 bg-emerald-400/[0.02]' : 'hover:border-white/15'}
+                  ${isMorocco ? 'border-l-2 border-l-amber-400/40' : ''}`}>
                 <div className="flex items-start gap-4">
                   <ScoreRing score={match.match_score} />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-3 mb-1 flex-wrap">
+                    <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
                       <div>
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
                           <h3 className="font-semibold text-base leading-tight">{match.job.title}</h3>
-                          {moroccan && <span className="text-xs">🇲🇦</span>}
+                          {isMorocco && <span className="text-xs">🇲🇦</span>}
                         </div>
                         <div className="text-accent2 text-sm mt-0.5">{match.job.company}</div>
                       </div>
@@ -268,7 +327,7 @@ export default function JobsPage() {
                           className="btn btn-primary btn-sm">
                           {isGenerating
                             ? <><Loader2 size={12} className="animate-spin" /> Generating…</>
-                            : <><Zap size={12} /> Apply + Cover Letter</>}
+                            : <><Zap size={12} /> Apply + Letter</>}
                         </button>
                       )}
                       {isApplying && (
@@ -278,6 +337,9 @@ export default function JobsPage() {
                       )}
                       <button onClick={() => setExpanded(isExpanded ? null : match.id)} className="btn btn-ghost btn-sm">
                         {isExpanded ? <><ChevronUp size={12} /> Less</> : <><ChevronDown size={12} /> Details</>}
+                      </button>
+                      <button onClick={() => shareJob(match)} className="btn btn-ghost btn-sm">
+                        Share
                       </button>
                     </div>
                   </div>
@@ -293,9 +355,8 @@ export default function JobsPage() {
         <div className="text-center py-24">
           <div className="text-6xl mb-4">🇲🇦</div>
           <h3 className="font-display font-semibold text-xl mb-2">Find internships in Morocco & worldwide</h3>
-          <p className="text-white/30 text-sm mb-6">
-            Searches Rekrute.ma, Emploi.ma, LinkedIn Morocco, RemoteOK, and more
-          </p>
+          <p className="text-white/30 text-sm mb-2">Searches 8 platforms simultaneously</p>
+          <p className="text-white/20 text-xs mb-6">Rekrute.ma · Emploi.ma · Stagiaire.ma · Tanmia.ma · OptionCarriere · Glassdoor · RemoteOK · Arbeitnow</p>
           <button onClick={handleSearch} className="btn btn-primary btn-lg">
             <Search size={16} /> Find internships
           </button>

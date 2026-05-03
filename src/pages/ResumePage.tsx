@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, CheckCircle, Loader2, Edit3, Save, X, Plus, Trash2 } from 'lucide-react'
+import { Upload, FileText, CheckCircle, Loader2, Edit3, Save, X, Plus, Trash2, RefreshCw } from 'lucide-react'
 import { uploadResume, uploadResumeText, getProfile, updateProfile } from '../lib/api'
 import type { CandidateProfile } from '../types'
 import toast from 'react-hot-toast'
@@ -8,10 +8,63 @@ import toast from 'react-hot-toast'
 type Experience = { title: string; company: string; duration: string; description: string; technologies: string[] }
 type Education = { degree: string; institution: string; year: number; field: string }
 
+// ── Profile completion score ──────────────────────────────────────────────────
+function calcCompletion(p: CandidateProfile): number {
+  const checks = [
+    !!p.full_name,
+    !!p.email,
+    !!p.phone,
+    !!p.location,
+    !!p.title,
+    !!p.summary,
+    p.skills.length >= 3,
+    p.experience.length >= 1,
+    !!p.education?.degree,
+    !!p.education?.institution,
+    p.preferred_roles.length >= 1,
+    !!(p.linkedin_url || p.github_url || p.portfolio_url),
+  ]
+  return Math.round((checks.filter(Boolean).length / checks.length) * 100)
+}
+
+function CompletionBar({ profile }: { profile: CandidateProfile }) {
+  const score = calcCompletion(profile)
+  const color = score >= 80 ? 'bg-emerald-400' : score >= 50 ? 'bg-amber-400' : 'bg-red-400'
+  const label = score >= 80 ? 'Great profile!' : score >= 50 ? 'Almost there' : 'Needs more info'
+
+  return (
+    <div className="card mb-5">
+      <div className="flex items-center justify-between mb-3">
+        <div className="section-label mb-0">Profile completion</div>
+        <div className="flex items-center gap-2">
+          <span className={`text-sm font-bold font-display ${score >= 80 ? 'text-emerald-400' : score >= 50 ? 'text-amber-400' : 'text-red-400'}`}>
+            {score}%
+          </span>
+          <span className="text-white/30 text-xs">{label}</span>
+        </div>
+      </div>
+      <div className="w-full h-2 bg-white/[0.06] rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-700 ${color}`}
+          style={{ width: `${score}%` }} />
+      </div>
+      {score < 100 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {!profile.phone && <span className="tag text-xs text-amber-400 border-amber-400/20 bg-amber-400/5">+ Phone</span>}
+          {!profile.location && <span className="tag text-xs text-amber-400 border-amber-400/20 bg-amber-400/5">+ Location</span>}
+          {profile.skills.length < 3 && <span className="tag text-xs text-amber-400 border-amber-400/20 bg-amber-400/5">+ More skills</span>}
+          {profile.experience.length < 1 && <span className="tag text-xs text-amber-400 border-amber-400/20 bg-amber-400/5">+ Experience</span>}
+          {!profile.linkedin_url && !profile.github_url && <span className="tag text-xs text-amber-400 border-amber-400/20 bg-amber-400/5">+ LinkedIn/GitHub</span>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ResumePage() {
   const [profile, setProfile] = useState<CandidateProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [analyzing, setAnalyzing] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [editMode, setEditMode] = useState(false)
   const [editData, setEditData] = useState<Partial<CandidateProfile>>({})
@@ -67,19 +120,33 @@ export default function ResumePage() {
     }
   }
 
+  // Re-analyze using saved raw_text
+  async function handleReanalyze() {
+    if (!profile?.raw_text) {
+      toast.error('No resume text saved — please upload again')
+      return
+    }
+    setReanalyzing(true)
+    try {
+      const res = await uploadResumeText(profile.raw_text)
+      setProfile(res.profile)
+      toast.success('Profile re-analyzed!')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Re-analysis failed')
+    } finally {
+      setReanalyzing(false)
+    }
+  }
+
   function startEdit() {
     if (!profile) return
     setEditData({
-      full_name: profile.full_name,
-      title: profile.title,
-      email: profile.email,
-      phone: profile.phone,
-      location: profile.location,
+      full_name: profile.full_name, title: profile.title,
+      email: profile.email, phone: profile.phone, location: profile.location,
       skills: [...profile.skills],
       preferred_roles: [...profile.preferred_roles],
       preferred_locations: [...(profile.preferred_locations ?? [])],
-      linkedin_url: profile.linkedin_url,
-      github_url: profile.github_url,
+      linkedin_url: profile.linkedin_url, github_url: profile.github_url,
       portfolio_url: profile.portfolio_url,
       education: { ...profile.education },
       experience: profile.experience.map(e => ({ ...e, technologies: [...(e.technologies ?? [])] })),
@@ -98,58 +165,16 @@ export default function ResumePage() {
     }
   }
 
-  // ── Skills ──────────────────────────────────────────────────────────────────
-  function addSkill() {
-    if (!newSkill.trim()) return
-    setEditData(d => ({ ...d, skills: [...(d.skills ?? []), newSkill.trim()] }))
-    setNewSkill('')
-  }
-  function removeSkill(s: string) {
-    setEditData(d => ({ ...d, skills: (d.skills ?? []).filter(x => x !== s) }))
-  }
-
-  // ── Target Roles ────────────────────────────────────────────────────────────
-  function addRole() {
-    if (!newRole.trim()) return
-    setEditData(d => ({ ...d, preferred_roles: [...(d.preferred_roles ?? []), newRole.trim()] }))
-    setNewRole('')
-  }
-  function removeRole(r: string) {
-    setEditData(d => ({ ...d, preferred_roles: (d.preferred_roles ?? []).filter(x => x !== r) }))
-  }
-
-  // ── Locations ───────────────────────────────────────────────────────────────
-  function addLocation() {
-    if (!newLocation.trim()) return
-    setEditData(d => ({ ...d, preferred_locations: [...(d.preferred_locations ?? []), newLocation.trim()] }))
-    setNewLocation('')
-  }
-  function removeLocation(l: string) {
-    setEditData(d => ({ ...d, preferred_locations: (d.preferred_locations ?? []).filter(x => x !== l) }))
-  }
-
-  // ── Education ───────────────────────────────────────────────────────────────
-  function updateEdu(field: keyof Education, value: string | number) {
-    setEditData(d => ({ ...d, education: { ...(d.education ?? {}), [field]: value } as Education }))
-  }
-
-  // ── Experience ──────────────────────────────────────────────────────────────
-  function updateExp(i: number, field: keyof Experience, value: string) {
-    setEditData(d => {
-      const exps = [...(d.experience ?? [])]
-      exps[i] = { ...exps[i], [field]: value }
-      return { ...d, experience: exps }
-    })
-  }
-  function addExp() {
-    setEditData(d => ({
-      ...d,
-      experience: [...(d.experience ?? []), { title: '', company: '', duration: '', description: '', technologies: [] }]
-    }))
-  }
-  function removeExp(i: number) {
-    setEditData(d => ({ ...d, experience: (d.experience ?? []).filter((_, idx) => idx !== i) }))
-  }
+  function addSkill() { if (!newSkill.trim()) return; setEditData(d => ({ ...d, skills: [...(d.skills ?? []), newSkill.trim()] })); setNewSkill('') }
+  function removeSkill(s: string) { setEditData(d => ({ ...d, skills: (d.skills ?? []).filter(x => x !== s) })) }
+  function addRole() { if (!newRole.trim()) return; setEditData(d => ({ ...d, preferred_roles: [...(d.preferred_roles ?? []), newRole.trim()] })); setNewRole('') }
+  function removeRole(r: string) { setEditData(d => ({ ...d, preferred_roles: (d.preferred_roles ?? []).filter(x => x !== r) })) }
+  function addLocation() { if (!newLocation.trim()) return; setEditData(d => ({ ...d, preferred_locations: [...(d.preferred_locations ?? []), newLocation.trim()] })); setNewLocation('') }
+  function removeLocation(l: string) { setEditData(d => ({ ...d, preferred_locations: (d.preferred_locations ?? []).filter(x => x !== l) })) }
+  function updateEdu(field: keyof Education, value: string | number) { setEditData(d => ({ ...d, education: { ...(d.education ?? {}), [field]: value } as Education })) }
+  function updateExp(i: number, field: keyof Experience, value: string) { setEditData(d => { const exps = [...(d.experience ?? [])]; exps[i] = { ...exps[i], [field]: value }; return { ...d, experience: exps } }) }
+  function addExp() { setEditData(d => ({ ...d, experience: [...(d.experience ?? []), { title: '', company: '', duration: '', description: '', technologies: [] }] })) }
+  function removeExp(i: number) { setEditData(d => ({ ...d, experience: (d.experience ?? []).filter((_, idx) => idx !== i) })) }
 
   if (loading) return (
     <div className="flex items-center justify-center h-screen">
@@ -164,8 +189,7 @@ export default function ResumePage() {
         <p className="text-white/40 text-sm">Upload your resume and let AI extract your full profile</p>
       </div>
 
-      {/* Upload zone */}
-      {!analyzing && (
+      {!analyzing && !reanalyzing && (
         <div className="mb-8">
           <div {...getRootProps()}
             className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all duration-200
@@ -175,7 +199,7 @@ export default function ResumePage() {
               <Upload size={22} className="text-white/40" />
             </div>
             <h3 className="font-display font-semibold text-lg mb-2">
-              {isDragActive ? 'Drop it here!' : 'Drop your resume here'}
+              {isDragActive ? 'Drop it here!' : profile ? 'Upload new resume' : 'Drop your resume here'}
             </h3>
             <p className="text-white/30 text-sm mb-4">PDF, DOCX or TXT · Max 10MB</p>
             <button className="btn btn-secondary btn-sm" type="button">Choose file</button>
@@ -197,8 +221,7 @@ export default function ResumePage() {
         </div>
       )}
 
-      {/* Analyzing */}
-      {analyzing && (
+      {(analyzing || reanalyzing) && (
         <div className="card text-center py-16 mb-8">
           <div className="flex justify-center gap-2 mb-6">
             {[0,1,2].map(i => (
@@ -206,32 +229,45 @@ export default function ResumePage() {
                 style={{ animationDelay: `${i * 0.2}s` }} />
             ))}
           </div>
-          <h3 className="font-display font-semibold text-xl mb-2">Analyzing your resume...</h3>
+          <h3 className="font-display font-semibold text-xl mb-2">
+            {reanalyzing ? 'Re-analyzing your resume...' : 'Analyzing your resume...'}
+          </h3>
           <p className="text-white/40 text-sm">AI is building your candidate profile</p>
         </div>
       )}
 
-      {/* Profile */}
-      {profile && !analyzing && (
+      {profile && !analyzing && !reanalyzing && (
         <div className="animate-fade-up">
-          <div className="flex items-center justify-between mb-6">
+          {/* Completion bar */}
+          <CompletionBar profile={profile} />
+
+          {/* Action bar */}
+          <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
             <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium">
               <CheckCircle size={15} /> Profile extracted
             </div>
-            {editMode ? (
-              <div className="flex gap-2">
-                <button onClick={() => setEditMode(false)} className="btn btn-ghost btn-sm"><X size={14} /> Cancel</button>
-                <button onClick={saveEdit} className="btn btn-primary btn-sm"><Save size={14} /> Save all changes</button>
-              </div>
-            ) : (
-              <button onClick={startEdit} className="btn btn-secondary btn-sm"><Edit3 size={14} /> Edit profile</button>
-            )}
+            <div className="flex items-center gap-2">
+              {/* Re-analyze button */}
+              {profile.raw_text && !editMode && (
+                <button onClick={handleReanalyze} disabled={reanalyzing}
+                  className="btn btn-ghost btn-sm">
+                  <RefreshCw size={13} /> Re-analyze
+                </button>
+              )}
+              {editMode ? (
+                <>
+                  <button onClick={() => setEditMode(false)} className="btn btn-ghost btn-sm"><X size={14} /> Cancel</button>
+                  <button onClick={saveEdit} className="btn btn-primary btn-sm"><Save size={14} /> Save changes</button>
+                </>
+              ) : (
+                <button onClick={startEdit} className="btn btn-secondary btn-sm"><Edit3 size={14} /> Edit profile</button>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             {/* Left column */}
             <div className="space-y-4">
-
               {/* Identity */}
               <div className="card">
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-accent to-accent2 flex items-center justify-center font-display font-bold text-xl text-white mb-4">
@@ -239,16 +275,7 @@ export default function ResumePage() {
                 </div>
                 {editMode ? (
                   <div className="space-y-3">
-                    {([
-                      ['full_name', 'Full name'],
-                      ['title', 'Title'],
-                      ['email', 'Email'],
-                      ['phone', 'Phone'],
-                      ['location', 'Location'],
-                      ['linkedin_url', 'LinkedIn URL'],
-                      ['github_url', 'GitHub URL'],
-                      ['portfolio_url', 'Portfolio URL'],
-                    ] as [keyof typeof editData, string][]).map(([key, label]) => (
+                    {([['full_name','Full name'],['title','Title'],['email','Email'],['phone','Phone'],['location','Location'],['linkedin_url','LinkedIn URL'],['github_url','GitHub URL'],['portfolio_url','Portfolio URL']] as [keyof typeof editData, string][]).map(([key, label]) => (
                       <div key={key}>
                         <label className="text-xs text-white/30 mb-1 block">{label}</label>
                         <input className="input py-2 text-sm" value={String(editData[key] ?? '')}
@@ -265,6 +292,8 @@ export default function ResumePage() {
                       {profile.email && <div>✉ {profile.email}</div>}
                       {profile.phone && <div>📱 {profile.phone}</div>}
                       {profile.location && <div>📍 {profile.location}</div>}
+                      {profile.linkedin_url && <div>🔗 LinkedIn</div>}
+                      {profile.github_url && <div>⚙ GitHub</div>}
                       {profile.portfolio_url && <div>🌐 Portfolio</div>}
                     </div>
                   </>
@@ -276,12 +305,7 @@ export default function ResumePage() {
                 <div className="section-label">Education</div>
                 {editMode ? (
                   <div className="space-y-3">
-                    {([
-                      ['degree', 'Degree', 'text'],
-                      ['field', 'Field of study', 'text'],
-                      ['institution', 'Institution', 'text'],
-                      ['year', 'Graduation year', 'number'],
-                    ] as [keyof Education, string, string][]).map(([key, label, type]) => (
+                    {([['degree','Degree','text'],['field','Field of study','text'],['institution','Institution','text'],['year','Graduation year','number']] as [keyof Education, string, string][]).map(([key, label, type]) => (
                       <div key={key}>
                         <label className="text-xs text-white/30 mb-1 block">{label}</label>
                         <input type={type} className="input py-2 text-sm"
@@ -305,13 +329,8 @@ export default function ResumePage() {
                 <div className="section-label">Target roles</div>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {(editMode ? editData.preferred_roles ?? [] : profile.preferred_roles).map((r: string) => (
-                    <span key={r} className="tag-accent flex items-center gap-1">
-                      {r}
-                      {editMode && (
-                        <button onClick={() => removeRole(r)} className="text-accent2/50 hover:text-red-400 ml-1">
-                          <X size={10} />
-                        </button>
-                      )}
+                    <span key={r} className="tag-accent flex items-center gap-1">{r}
+                      {editMode && <button onClick={() => removeRole(r)} className="text-accent2/50 hover:text-red-400 ml-1"><X size={10} /></button>}
                     </span>
                   ))}
                 </div>
@@ -330,13 +349,8 @@ export default function ResumePage() {
                 <div className="section-label">Preferred locations</div>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {(editMode ? editData.preferred_locations ?? [] : profile.preferred_locations ?? []).map((l: string) => (
-                    <span key={l} className="tag flex items-center gap-1">
-                      {l}
-                      {editMode && (
-                        <button onClick={() => removeLocation(l)} className="text-white/30 hover:text-red-400 ml-1">
-                          <X size={10} />
-                        </button>
-                      )}
+                    <span key={l} className="tag flex items-center gap-1">{l}
+                      {editMode && <button onClick={() => removeLocation(l)} className="text-white/30 hover:text-red-400 ml-1"><X size={10} /></button>}
                     </span>
                   ))}
                 </div>
@@ -353,19 +367,13 @@ export default function ResumePage() {
 
             {/* Right column */}
             <div className="lg:col-span-2 space-y-4">
-
               {/* Skills */}
               <div className="card">
                 <div className="section-label">Skills ({editMode ? editData.skills?.length : profile.skills.length})</div>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {(editMode ? editData.skills ?? [] : profile.skills).map((s: string) => (
-                    <span key={s} className="tag flex items-center gap-1">
-                      {s}
-                      {editMode && (
-                        <button onClick={() => removeSkill(s)} className="text-white/30 hover:text-red-400 ml-1">
-                          <X size={10} />
-                        </button>
-                      )}
+                    <span key={s} className="tag flex items-center gap-1">{s}
+                      {editMode && <button onClick={() => removeSkill(s)} className="text-white/30 hover:text-red-400 ml-1"><X size={10} /></button>}
                     </span>
                   ))}
                 </div>
@@ -385,7 +393,7 @@ export default function ResumePage() {
                   <div className="section-label mb-0">Experience</div>
                   {editMode && (
                     <button onClick={addExp} className="btn btn-secondary btn-sm">
-                      <Plus size={13} /> Add experience
+                      <Plus size={13} /> Add
                     </button>
                   )}
                 </div>
@@ -395,12 +403,8 @@ export default function ResumePage() {
                       {editMode ? (
                         <div className="space-y-3">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold text-white/30 uppercase tracking-wider">
-                              Experience {i + 1}
-                            </span>
-                            <button onClick={() => removeExp(i)} className="btn btn-danger btn-sm py-1 px-2">
-                              <Trash2 size={12} />
-                            </button>
+                            <span className="text-xs font-semibold text-white/25 uppercase tracking-wider">Experience {i + 1}</span>
+                            <button onClick={() => removeExp(i)} className="btn btn-danger btn-sm py-1 px-2"><Trash2 size={12} /></button>
                           </div>
                           <div className="grid grid-cols-2 gap-3">
                             <div>
@@ -422,8 +426,7 @@ export default function ResumePage() {
                           <div>
                             <label className="text-xs text-white/30 mb-1 block">Description</label>
                             <textarea className="input py-2 text-sm resize-none min-h-[80px]" value={exp.description ?? ''}
-                              onChange={e => updateExp(i, 'description', e.target.value)}
-                              placeholder="What did you work on?" />
+                              onChange={e => updateExp(i, 'description', e.target.value)} placeholder="What did you work on?" />
                           </div>
                         </div>
                       ) : (
@@ -441,7 +444,7 @@ export default function ResumePage() {
                     </div>
                   ))}
                   {profile.experience.length === 0 && !editMode && (
-                    <p className="text-white/30 text-sm">No experience listed</p>
+                    <p className="text-white/30 text-sm">No experience listed — click Edit to add some</p>
                   )}
                 </div>
               </div>
@@ -450,7 +453,7 @@ export default function ResumePage() {
         </div>
       )}
 
-      {!profile && !analyzing && (
+      {!profile && !analyzing && !reanalyzing && (
         <div className="text-center py-16 text-white/30">
           <FileText size={40} className="mx-auto mb-4 opacity-20" />
           <p>Upload your resume above to get started</p>
