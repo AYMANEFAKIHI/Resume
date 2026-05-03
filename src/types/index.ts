@@ -28,6 +28,7 @@ export interface CandidateProfile {
   linkedin_url?: string
   github_url?: string
   portfolio_url?: string
+  raw_text?: string
   created_at: string
   updated_at: string
 }
