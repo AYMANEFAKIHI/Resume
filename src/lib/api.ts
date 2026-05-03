@@ -84,7 +84,11 @@ export async function uploadResumeText(text: string) {
 
 export async function getProfile() {
   const headers = await authHeaders()
-  return request<any>('/resume/profile', { headers })
+  const res = await fetch(`${BASE}/resume/profile`, { headers })
+  if (res.status === 404) return { profile: null }
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error ?? `Request failed: ${res.status}`)
+  return data
 }
 
 export async function updateProfile(data: any) {
