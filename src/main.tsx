@@ -9,6 +9,7 @@ import DashboardPage from './pages/DashboardPage'
 import ResumePage from './pages/ResumePage'
 import JobsPage from './pages/JobsPage'
 import TrackerPage from './pages/TrackerPage'
+import CompaniesPage from './pages/CompaniesPage'
 import NotFoundPage from './pages/NotFoundPage'
 import Layout from './components/Layout'
 import FeedbackButton from './components/FeedbackButton'
@@ -31,38 +32,27 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   const { user } = useAuth()
-
   return (
     <>
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/auth" element={<AuthPage />} />
-          <Route path="/dashboard" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-            <Route index element={<DashboardPage />} />
-          </Route>
-          <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-            <Route path="resume"  element={<ResumePage />} />
-            <Route path="jobs"    element={<JobsPage />} />
-            <Route path="tracker" element={<TrackerPage />} />
+          <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/resume"    element={<ResumePage />} />
+            <Route path="/jobs"      element={<JobsPage />} />
+            <Route path="/tracker"   element={<TrackerPage />} />
+            <Route path="/companies" element={<CompaniesPage />} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </BrowserRouter>
-
-      {/* Global feedback button — shown when logged in */}
       {user && <FeedbackButton />}
-
       <Toaster
         position="bottom-right"
         toastOptions={{
-          style: {
-            background: '#1a1a2e',
-            color: '#f0eee8',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: '12px',
-            fontSize: '14px',
-          },
+          style: { background: '#1a1a2e', color: '#f0eee8', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', fontSize: '14px' },
           success: { iconTheme: { primary: '#34d399', secondary: '#07070f' } },
           error:   { iconTheme: { primary: '#f87171', secondary: '#07070f' } },
         }}
@@ -71,14 +61,6 @@ function App() {
   )
 }
 
-function Root() {
-  return (
-    <AuthProvider>
-      <App />
-    </AuthProvider>
-  )
-}
-
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode><Root /></React.StrictMode>
+  <React.StrictMode><AuthProvider><App /></AuthProvider></React.StrictMode>
 )

@@ -249,3 +249,30 @@ export async function scrapeAllSources(roles, locations) {
     return true
   })
 }
+
+// ── Targeted company search on LinkedIn ───────────────────────────────────────
+export async function scrapeTargetedCompanies(role, companyNames) {
+  const jobs = []
+  // Search LinkedIn for internships at specific companies
+  for (const company of companyNames.slice(0, 5)) {
+    try {
+      const query = encodeURIComponent(`${role} intern ${company}`)
+      const res = await fetch(
+        `https://www.linkedin.com/jobs/search/?keywords=${query}&location=Morocco&f_JT=I`,
+        { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }, signal: AbortSignal.timeout(5000) }
+      )
+      if (!res.ok) continue
+      const html = await res.text()
+      const regex = /data-entity-urn="[^"]*:(\d+)"[\s\S]*?<h3[^>]*>\s*([^<]{5,80})<[\s\S]*?<h4[^>]*>\s*([^<]{3,60})</g
+      let m
+      while ((m = regex.exec(html)) !== null && jobs.length < 3) {
+        if (m[3].toLowerCase().includes(company.toLowerCase().slice(0, 5))) {
+          jobs.push(makeJob(m[2], m[3], 'Morocco',
+            `${sanitize(m[2])} internship at ${sanitize(m[3])}`,
+            `https://www.linkedin.com/jobs/view/${m[1]}`, 'linkedin'))
+        }
+      }
+    } catch {}
+  }
+  return jobs
+}

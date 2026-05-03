@@ -1,14 +1,15 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, FileText, Briefcase, ClipboardList, LogOut, Zap, ChevronRight } from 'lucide-react'
+import { LayoutDashboard, FileText, Briefcase, ClipboardList, LogOut, Zap, ChevronRight, Building2 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import Footer from './Footer'
 import toast from 'react-hot-toast'
 
 const NAV = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard',  desc: 'Overview & stats'  },
-  { to: '/resume',    icon: FileText,        label: 'Resume',     desc: 'Upload & analyze'  },
-  { to: '/jobs',      icon: Briefcase,       label: 'Jobs',       desc: 'Find & match'      },
-  { to: '/tracker',   icon: ClipboardList,   label: 'Tracker',    desc: 'All applications'  },
+  { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard',  desc: 'Overview & stats'       },
+  { to: '/resume',     icon: FileText,        label: 'Resume',     desc: 'Upload & analyze'       },
+  { to: '/jobs',       icon: Briefcase,       label: 'Jobs',       desc: 'Find & match'           },
+  { to: '/companies',  icon: Building2,       label: 'Companies',  desc: '70+ Moroccan companies' },
+  { to: '/tracker',    icon: ClipboardList,   label: 'Tracker',    desc: 'All applications'       },
 ]
 
 export default function Layout() {
@@ -24,7 +25,6 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen bg-[#07070f]">
-      {/* Sidebar */}
       <aside className="w-60 shrink-0 fixed top-0 left-0 h-full flex flex-col z-50"
         style={{ background: 'rgba(8,8,18,0.97)', borderRight: '1px solid rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)' }}>
 
@@ -71,7 +71,7 @@ export default function Layout() {
           ))}
         </nav>
 
-        {/* User + sign out */}
+        {/* User */}
         <div className="p-3 mt-2 border-t border-white/[0.05]">
           <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-accent2 flex items-center justify-center text-white text-xs font-bold shrink-0">
@@ -82,18 +82,14 @@ export default function Layout() {
             </div>
           </div>
           <button onClick={handleSignOut}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/25
-                       hover:text-red-400 hover:bg-red-400/[0.06] transition-all w-full mt-1">
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/25 hover:text-red-400 hover:bg-red-400/[0.06] transition-all w-full mt-1">
             <LogOut size={15} /> Sign out
           </button>
         </div>
       </aside>
 
-      {/* Main */}
       <main className="flex-1 ml-60 min-h-screen flex flex-col">
-        <div className="flex-1">
-          <Outlet />
-        </div>
+        <div className="flex-1"><Outlet /></div>
         <Footer />
       </main>
     </div>

@@ -1,18 +1,23 @@
 import { verifyToken, getProfile, upsertJobListings, upsertJobMatches, getJobMatches } from '../_db.js'
 import { scoreJobMatches } from '../_claude.js'
-import { scrapeAllSources } from '../_scrapers.js'
+import { scrapeAllSources, scrapeTargetedCompanies } from '../_scrapers.js'
+
+// Top Moroccan companies to always search
+const TOP_MOROCCAN_COMPANIES = [
+  'OCP', 'Renault', 'Orange', 'ONCF', 'Lafarge', 'STMicroelectronics',
+  'Aptiv', 'LEAR', 'Yazaki', 'ALTEN', 'CGI', 'HPS', 'Cosumar',
+  'Marsa Maroc', 'Mazars', 'Novec', 'JESA', 'GEP', 'Axians',
+]
 
 export default async function handler(req, res) {
   try {
     const user = await verifyToken(req)
 
-    // GET — return saved matches
     if (req.method === 'GET') {
       const jobs = await getJobMatches(user.id)
       return res.json({ jobs, total: jobs.length })
     }
 
-    // POST /api/jobs/search — scrape + score
     if (req.method === 'POST') {
       const profile = await getProfile(user.id)
       if (!profile) return res.status(404).json({ error: 'Upload your resume first' })
@@ -20,10 +25,28 @@ export default async function handler(req, res) {
       const roles = req.body?.roles ?? profile.preferred_roles
       const locations = req.body?.locations ?? profile.preferred_locations
 
-      const scraped = await scrapeAllSources(roles, locations)
-      if (!scraped.length) return res.json({ jobs: [], total: 0, message: 'No jobs found' })
+      // Run general scrapers + targeted company search in parallel
+      const [scraped, targeted] = await Promise.allSettled([
+        scrapeAllSources(roles, locations),
+        scrapeTargetedCompanies(roles[0] ?? 'software engineer', TOP_MOROCCAN_COMPANIES),
+      ])
 
-      const saved = await upsertJobListings(scraped)
+      const allJobs = [
+        ...(scraped.status === 'fulfilled' ? scraped.value : []),
+        ...(targeted.status === 'fulfilled' ? targeted.value : []),
+      ]
+
+      // Deduplicate
+      const seen = new Set()
+      const unique = allJobs.filter(j => {
+        if (!j.apply_url || seen.has(j.apply_url)) return false
+        seen.add(j.apply_url)
+        return true
+      })
+
+      if (!unique.length) return res.json({ jobs: [], total: 0, message: 'No jobs found' })
+
+      const saved = await upsertJobListings(unique)
 
       // Score in batches of 8
       const allScores = []
