@@ -9,7 +9,9 @@ import DashboardPage from './pages/DashboardPage'
 import ResumePage from './pages/ResumePage'
 import JobsPage from './pages/JobsPage'
 import TrackerPage from './pages/TrackerPage'
+import NotFoundPage from './pages/NotFoundPage'
 import Layout from './components/Layout'
+import FeedbackButton from './components/FeedbackButton'
 import './index.css'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -28,27 +30,29 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
+  const { user } = useAuth()
+
   return (
-    <AuthProvider>
+    <>
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/auth" element={<AuthPage />} />
-          <Route path="/dashboard" element={
-            <ProtectedRoute><Layout /></ProtectedRoute>
-          }>
+          <Route path="/dashboard" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route index element={<DashboardPage />} />
           </Route>
-          <Route path="/" element={
-            <ProtectedRoute><Layout /></ProtectedRoute>
-          }>
-            <Route path="resume" element={<ResumePage />} />
-            <Route path="jobs" element={<JobsPage />} />
+          <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+            <Route path="resume"  element={<ResumePage />} />
+            <Route path="jobs"    element={<JobsPage />} />
             <Route path="tracker" element={<TrackerPage />} />
           </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </BrowserRouter>
+
+      {/* Global feedback button — shown when logged in */}
+      {user && <FeedbackButton />}
+
       <Toaster
         position="bottom-right"
         toastOptions={{
@@ -60,13 +64,21 @@ function App() {
             fontSize: '14px',
           },
           success: { iconTheme: { primary: '#34d399', secondary: '#07070f' } },
-          error: { iconTheme: { primary: '#f87171', secondary: '#07070f' } },
+          error:   { iconTheme: { primary: '#f87171', secondary: '#07070f' } },
         }}
       />
+    </>
+  )
+}
+
+function Root() {
+  return (
+    <AuthProvider>
+      <App />
     </AuthProvider>
   )
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode><App /></React.StrictMode>
+  <React.StrictMode><Root /></React.StrictMode>
 )

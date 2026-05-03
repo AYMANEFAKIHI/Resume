@@ -31,7 +31,9 @@ export default function AuthPage() {
         navigate('/dashboard')
       } else {
         await signUp(email, password)
-        toast.success('Account created! Check your email to confirm.')
+        toast.success("Account created! Check your email to confirm.")
+        // Send welcome email
+        fetch("/api/welcome-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }).catch(() => {})
         setMode('signin')
       }
     } catch (err) {

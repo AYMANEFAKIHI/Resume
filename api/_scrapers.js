@@ -2,7 +2,7 @@ function sanitize(str) {
   return (str ?? '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
 }
 
-// ── 1. Rekrute.ma (Morocco #1 job board) ─────────────────────────────────────
+// ── 1. Rekrute.ma ─────────────────────────────────────────────────────────────
 export async function scrapeRekrute(role) {
   try {
     const query = encodeURIComponent(role)
@@ -12,26 +12,22 @@ export async function scrapeRekrute(role) {
     )
     if (!res.ok) return []
     const html = await res.text()
-
     const jobs = []
     const itemRegex = /<li class="post-id[^"]*"[^>]*>([\s\S]*?)<\/li>/g
-    const titleRegex = /<a[^>]*class="[^"]*offre[^"]*"[^>]*href="([^"]+)"[^>]*>\s*([^<]+)/i
+    const titleRegex = /<a[^>]*href="([^"]+)"[^>]*>\s*([^<]{5,80})/i
     const companyRegex = /class="[^"]*company[^"]*"[^>]*>\s*([^<]+)/i
-    const locationRegex = /Ville\s*:?\s*<[^>]*>([^<]+)/i
-
     let match
     while ((match = itemRegex.exec(html)) !== null && jobs.length < 10) {
       const block = match[1]
-      const titleMatch = titleRegex.exec(block)
-      const companyMatch = companyRegex.exec(block)
-      const locationMatch = locationRegex.exec(block)
-      if (titleMatch) {
+      const t = titleRegex.exec(block)
+      const c = companyRegex.exec(block)
+      if (t && t[2].length > 5) {
         jobs.push({
-          title: sanitize(titleMatch[2]),
-          company: sanitize(companyMatch?.[1] ?? 'Moroccan Company'),
-          location: sanitize(locationMatch?.[1] ?? 'Morocco'),
-          description: `Internship opportunity in Morocco. Apply via Rekrute.ma`,
-          apply_url: titleMatch[1].startsWith('http') ? titleMatch[1] : `https://www.rekrute.com${titleMatch[1]}`,
+          title: sanitize(t[2]),
+          company: sanitize(c?.[1] ?? 'Moroccan Company'),
+          location: 'Maroc',
+          description: 'Internship opportunity in Morocco via Rekrute.ma',
+          apply_url: t[1].startsWith('http') ? t[1] : `https://www.rekrute.com${t[1]}`,
           source: 'rekrute',
           scraped_at: new Date().toISOString(),
           is_active: true,
@@ -39,10 +35,7 @@ export async function scrapeRekrute(role) {
       }
     }
     return jobs
-  } catch (e) {
-    console.error('Rekrute error:', e.message)
-    return []
-  }
+  } catch (e) { console.error('Rekrute:', e.message); return [] }
 }
 
 // ── 2. Emploi.ma ──────────────────────────────────────────────────────────────
@@ -55,66 +48,62 @@ export async function scrapeEmploiMa(role) {
     )
     if (!res.ok) return []
     const html = await res.text()
-
     const jobs = []
-    const blocks = html.match(/<div[^>]+class="[^"]*job[^"]*"[^>]*>[\s\S]*?<\/div>/gi) ?? []
-
-    for (const block of blocks.slice(0, 10)) {
-      const titleMatch = block.match(/href="([^"]+)"[^>]*>([^<]{10,80})</)
-      const companyMatch = block.match(/class="[^"]*company[^"]*"[^>]*>([^<]+)/)
-      if (titleMatch && titleMatch[2].length > 5) {
-        jobs.push({
-          title: sanitize(titleMatch[2]),
-          company: sanitize(companyMatch?.[1] ?? 'Moroccan Company'),
-          location: 'Maroc',
-          description: `Stage / Internship in Morocco. Apply via Emploi.ma`,
-          apply_url: titleMatch[1].startsWith('http') ? titleMatch[1] : `https://www.emploi.ma${titleMatch[1]}`,
-          source: 'emploima',
-          scraped_at: new Date().toISOString(),
-          is_active: true,
-        })
-      }
-    }
-    return jobs
-  } catch (e) {
-    console.error('Emploi.ma error:', e.message)
-    return []
-  }
-}
-
-// ── 3. MarocAnnonces stages ───────────────────────────────────────────────────
-export async function scrapeMarocAnnonces(role) {
-  try {
-    const query = encodeURIComponent(role)
-    const res = await fetch(
-      `https://www.marocannonces.com/maroc/offres-emploi-b309.html?kw=${query}`,
-      { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; InternIQ/1.0)' } }
-    )
-    if (!res.ok) return []
-    const html = await res.text()
-    const jobs = []
-    const regex = /href="(\/maroc\/[^"]+offre[^"]+\.html)"[^>]*>\s*<[^>]+>\s*([^<]{10,80})/gi
+    const regex = /href="(\/offre-emploi[^"]+)"[^>]*>\s*<[^>]+>\s*([^<]{10,80})/gi
     let m
-    while ((m = regex.exec(html)) !== null && jobs.length < 8) {
+    while ((m = regex.exec(html)) !== null && jobs.length < 10) {
       jobs.push({
         title: sanitize(m[2]),
         company: 'Moroccan Company',
         location: 'Maroc',
-        description: 'Internship/Stage opportunity in Morocco',
-        apply_url: `https://www.marocannonces.com${m[1]}`,
-        source: 'marocannonces',
+        description: 'Stage / Internship in Morocco via Emploi.ma',
+        apply_url: `https://www.emploi.ma${m[1]}`,
+        source: 'emploima',
         scraped_at: new Date().toISOString(),
         is_active: true,
       })
     }
     return jobs
-  } catch (e) {
-    console.error('MarocAnnonces error:', e.message)
-    return []
-  }
+  } catch (e) { console.error('Emploi.ma:', e.message); return [] }
 }
 
-// ── 4. RemoteOK (international remote) ───────────────────────────────────────
+// ── 3. Glassdoor RSS (public, no auth) ───────────────────────────────────────
+export async function scrapeGlassdoor(role) {
+  try {
+    const query = encodeURIComponent(`${role} intern`)
+    const res = await fetch(
+      `https://www.glassdoor.com/Job/jobs.htm?sc.keyword=${query}&locT=N&locId=0&jobType=internship&fromAge=7&format=rss`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; InternIQ/1.0)',
+          'Accept': 'application/rss+xml, application/xml, text/xml',
+        }
+      }
+    )
+    if (!res.ok) return []
+    const xml = await res.text()
+    const items = xml.match(/<item>([\s\S]*?)<\/item>/g) ?? []
+
+    return items.slice(0, 10).map(item => {
+      const get = (tag) => {
+        const m = item.match(new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?</${tag}>`))
+        return sanitize(m?.[1] ?? '')
+      }
+      return {
+        title: get('title'),
+        company: get('author') || get('source') || 'Company',
+        location: get('location') || 'Remote',
+        description: get('description').slice(0, 800),
+        apply_url: get('link') || get('guid'),
+        source: 'glassdoor',
+        scraped_at: new Date().toISOString(),
+        is_active: true,
+      }
+    }).filter(j => j.title && j.apply_url)
+  } catch (e) { console.error('Glassdoor:', e.message); return [] }
+}
+
+// ── 4. RemoteOK ───────────────────────────────────────────────────────────────
 export async function scrapeRemoteOK(role) {
   try {
     const res = await fetch('https://remoteok.com/api', {
@@ -143,13 +132,10 @@ export async function scrapeRemoteOK(role) {
         scraped_at: new Date().toISOString(),
         is_active: true,
       }))
-  } catch (e) {
-    console.error('RemoteOK error:', e.message)
-    return []
-  }
+  } catch (e) { console.error('RemoteOK:', e.message); return [] }
 }
 
-// ── 5. Arbeitnow (Europe + Remote) ───────────────────────────────────────────
+// ── 5. Arbeitnow ──────────────────────────────────────────────────────────────
 export async function scrapeArbeitnow(role) {
   try {
     const res = await fetch(
@@ -169,84 +155,31 @@ export async function scrapeArbeitnow(role) {
       scraped_at: new Date().toISOString(),
       is_active: true,
     })).filter(j => j.apply_url)
-  } catch (e) {
-    console.error('Arbeitnow error:', e.message)
-    return []
-  }
-}
-
-// ── 6. LinkedIn Public Search (no auth needed for search page) ────────────────
-export async function scrapeLinkedInPublic(role) {
-  try {
-    const query = encodeURIComponent(`${role} internship Morocco`)
-    const res = await fetch(
-      `https://www.linkedin.com/jobs/search/?keywords=${query}&location=Morocco&f_E=1`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
-        }
-      }
-    )
-    if (!res.ok) return []
-    const html = await res.text()
-    const jobs = []
-    const regex = /data-entity-urn="[^"]*:(\d+)"[\s\S]*?<h3[^>]*>\s*([^<]{5,80})<[\s\S]*?<h4[^>]*>\s*([^<]{3,60})</g
-    let m
-    while ((m = regex.exec(html)) !== null && jobs.length < 8) {
-      jobs.push({
-        title: sanitize(m[2]),
-        company: sanitize(m[3]),
-        location: 'Morocco',
-        description: `${sanitize(m[2])} internship opportunity at ${sanitize(m[3])}`,
-        apply_url: `https://www.linkedin.com/jobs/view/${m[1]}`,
-        source: 'linkedin',
-        scraped_at: new Date().toISOString(),
-        is_active: true,
-      })
-    }
-    return jobs
-  } catch (e) {
-    console.error('LinkedIn error:', e.message)
-    return []
-  }
+  } catch (e) { console.error('Arbeitnow:', e.message); return [] }
 }
 
 // ── Main Orchestrator ─────────────────────────────────────────────────────────
 export async function scrapeAllSources(roles, locations) {
   const role = roles[0] ?? 'software engineer'
-  const isMorocco = (locations ?? []).some(l =>
-    l.toLowerCase().includes('maroc') || l.toLowerCase().includes('morocco') || l.toLowerCase().includes('rabat') || l.toLowerCase().includes('casablanca')
-  )
+  console.log(`Scraping: "${role}"`)
 
-  console.log(`Scraping: "${role}" | Morocco priority: ${isMorocco}`)
-
-  // Run all scrapers in parallel
-  const [rekrute, emploima, marocannonces, linkedin, remoteok, arbeitnow] =
+  const [rekrute, emploima, glassdoor, remoteok, arbeitnow] =
     await Promise.allSettled([
       scrapeRekrute(role),
       scrapeEmploiMa(role),
-      scrapeMarocAnnonces(role),
-      scrapeLinkedInPublic(role),
+      scrapeGlassdoor(role),
       scrapeRemoteOK(role),
       scrapeArbeitnow(role),
     ])
 
   // Morocco first, then international
-  const moroccanJobs = [
+  const all = [
     ...(rekrute.status === 'fulfilled' ? rekrute.value : []),
     ...(emploima.status === 'fulfilled' ? emploima.value : []),
-    ...(marocannonces.status === 'fulfilled' ? marocannonces.value : []),
-    ...(linkedin.status === 'fulfilled' ? linkedin.value : []),
-  ]
-
-  const internationalJobs = [
+    ...(glassdoor.status === 'fulfilled' ? glassdoor.value : []),
     ...(remoteok.status === 'fulfilled' ? remoteok.value : []),
     ...(arbeitnow.status === 'fulfilled' ? arbeitnow.value : []),
   ]
-
-  // Morocco jobs first always
-  const all = [...moroccanJobs, ...internationalJobs]
 
   // Deduplicate
   const seen = new Set()
