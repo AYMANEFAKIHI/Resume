@@ -10,6 +10,7 @@ import ResumePage from './pages/ResumePage'
 import JobsPage from './pages/JobsPage'
 import TrackerPage from './pages/TrackerPage'
 import CompaniesPage from './pages/CompaniesPage'
+import ContactsPage from './pages/ContactsPage'
 import NotFoundPage from './pages/NotFoundPage'
 import Layout from './components/Layout'
 import FeedbackButton from './components/FeedbackButton'
@@ -42,8 +43,9 @@ function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/resume"    element={<ResumePage />} />
             <Route path="/jobs"      element={<JobsPage />} />
-            <Route path="/tracker"   element={<TrackerPage />} />
             <Route path="/companies" element={<CompaniesPage />} />
+            <Route path="/contacts"  element={<ContactsPage />} />
+            <Route path="/tracker"   element={<TrackerPage />} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

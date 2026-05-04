@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, FileText, Briefcase, ClipboardList, LogOut, Zap, ChevronRight, Building2 } from 'lucide-react'
+import { LayoutDashboard, FileText, Briefcase, ClipboardList, LogOut, Zap, ChevronRight, Building2, Users } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import Footer from './Footer'
 import toast from 'react-hot-toast'
@@ -9,6 +9,7 @@ const NAV = [
   { to: '/resume',     icon: FileText,        label: 'Resume',     desc: 'Upload & analyze'       },
   { to: '/jobs',       icon: Briefcase,       label: 'Jobs',       desc: 'Find & match'           },
   { to: '/companies',  icon: Building2,       label: 'Companies',  desc: '70+ Moroccan companies' },
+  { to: '/contacts',   icon: Users,           label: 'Contacts',   desc: '922 companies · 2038 contacts' },
   { to: '/tracker',    icon: ClipboardList,   label: 'Tracker',    desc: 'All applications'       },
 ]
 
@@ -28,7 +29,6 @@ export default function Layout() {
       <aside className="w-60 shrink-0 fixed top-0 left-0 h-full flex flex-col z-50"
         style={{ background: 'rgba(8,8,18,0.97)', borderRight: '1px solid rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)' }}>
 
-        {/* Logo */}
         <div className="p-5 pb-4">
           <div className="flex items-center gap-3 px-1">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
@@ -42,38 +42,35 @@ export default function Layout() {
           </div>
         </div>
 
-        {/* Morocco badge */}
         <div className="mx-4 mb-4 px-3 py-2 rounded-xl bg-amber-400/5 border border-amber-400/15">
           <div className="text-xs text-amber-400/70 flex items-center gap-1.5">
             🇲🇦 <span>Morocco-first search</span>
           </div>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 px-3 space-y-1">
+        <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
           {NAV.map(({ to, icon: Icon, label, desc }) => (
             <NavLink key={to} to={to}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all duration-200
+                `flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200
                 ${isActive ? 'nav-active' : 'text-white/35 hover:text-white hover:bg-white/[0.04]'}`
               }>
               {({ isActive }) => (
                 <>
-                  <Icon size={16} className={isActive ? 'text-accent2' : ''} />
+                  <Icon size={15} className={isActive ? 'text-accent2' : ''} />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium leading-tight">{label}</div>
-                    <div className="text-xs opacity-40 leading-tight mt-0.5">{desc}</div>
+                    <div className="text-xs opacity-35 leading-tight mt-0.5 truncate">{desc}</div>
                   </div>
-                  {isActive && <ChevronRight size={13} className="text-accent2/50" />}
+                  {isActive && <ChevronRight size={12} className="text-accent2/50 shrink-0" />}
                 </>
               )}
             </NavLink>
           ))}
         </nav>
 
-        {/* User */}
         <div className="p-3 mt-2 border-t border-white/[0.05]">
-          <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl">
+          <div className="flex items-center gap-3 px-3 py-2 rounded-xl">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-accent2 flex items-center justify-center text-white text-xs font-bold shrink-0">
               {initials}
             </div>
@@ -82,8 +79,8 @@ export default function Layout() {
             </div>
           </div>
           <button onClick={handleSignOut}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/25 hover:text-red-400 hover:bg-red-400/[0.06] transition-all w-full mt-1">
-            <LogOut size={15} /> Sign out
+            className="flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-white/25 hover:text-red-400 hover:bg-red-400/[0.06] transition-all w-full mt-1">
+            <LogOut size={14} /> Sign out
           </button>
         </div>
       </aside>
