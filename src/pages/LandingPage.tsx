@@ -184,7 +184,7 @@ function Footer() {
         </div>
 
         <div className="text-white/30 text-sm text-center">
-          Developed with ❤️ by{' '}
+          Developed by{' '}
           <a href="https://www.linkedin.com/in/aymane-fakihi-9a3435335/"
             target="_blank" rel="noopener noreferrer"
             className="text-accent2 hover:underline font-medium">
