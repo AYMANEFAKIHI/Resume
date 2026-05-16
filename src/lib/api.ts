@@ -36,60 +36,30 @@ function fileToBase64(file: File): Promise<string> {
 
 export async function uploadResume(file: File) {
   const headers = await authHeaders()
-
   const isPDF  = file.type === 'application/pdf' || file.name.endsWith('.pdf')
   const isDOCX = file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.endsWith('.docx')
-  const isTXT  = file.type === 'text/plain' || file.name.endsWith('.txt')
 
   if (isPDF) {
     const pdf_base64 = await fileToBase64(file)
-    return request<any>('/resume/upload', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ pdf_base64, filename: file.name }),
-    })
+    return request<any>('/resume?action=upload', { method: 'POST', headers, body: JSON.stringify({ pdf_base64, filename: file.name }) })
   }
-
   if (isDOCX) {
-    // ✅ FIX: send DOCX as base64 for server-side mammoth extraction
     const docx_base64 = await fileToBase64(file)
-    return request<any>('/resume/upload', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ docx_base64, filename: file.name }),
-    })
+    return request<any>('/resume?action=upload', { method: 'POST', headers, body: JSON.stringify({ docx_base64, filename: file.name }) })
   }
-
-  if (isTXT) {
-    const text = await file.text()
-    return request<any>('/resume/upload', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ text: cleanText(text) }),
-    })
-  }
-
-  // Fallback: try reading as text
+  // Fallback: plain text
   const text = await file.text()
-  return request<any>('/resume/upload', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ text: cleanText(text) }),
-  })
+  return request<any>('/resume?action=upload', { method: 'POST', headers, body: JSON.stringify({ text: cleanText(text) }) })
 }
 
 export async function uploadResumeText(text: string) {
   const headers = await authHeaders()
-  return request<any>('/resume/upload', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ text: cleanText(text) }),
-  })
+  return request<any>('/resume?action=upload', { method: 'POST', headers, body: JSON.stringify({ text: cleanText(text) }) })
 }
 
 export async function getProfile() {
   const headers = await authHeaders()
-  const res = await fetch(`${BASE}/resume/profile`, { headers })
+  const res = await fetch(`${BASE}/resume?action=profile`, { headers })
   if (res.status === 404) return { profile: null }
   const data = await res.json()
   if (!res.ok) throw new Error(data.error ?? `Request failed: ${res.status}`)
@@ -98,17 +68,17 @@ export async function getProfile() {
 
 export async function updateProfile(data: any) {
   const headers = await authHeaders()
-  return request<any>('/resume/profile', { method: 'PUT', headers, body: JSON.stringify(data) })
+  return request<any>('/resume?action=profile', { method: 'PUT', headers, body: JSON.stringify(data) })
 }
 
 export async function getResumeTips() {
   const headers = await authHeaders()
-  return request<any>('/resume/tips', { headers })
+  return request<any>('/resume?action=tips', { headers })
 }
 
 export async function getResumeImprovement() {
   const headers = await authHeaders()
-  return request<any>('/resume/tips', { method: 'POST', headers, body: JSON.stringify({}) })
+  return request<any>('/resume?action=tips', { method: 'POST', headers, body: JSON.stringify({}) })
 }
 
 // ── Jobs ──────────────────────────────────────────────────────────────────────
@@ -123,28 +93,17 @@ export async function getJobs() {
   return request<any>('/jobs', { headers })
 }
 
-// ── Cover Letter ──────────────────────────────────────────────────────────────
-
-export async function generateCoverLetter(jobId: string) {
-  const headers = await authHeaders()
-  return request<any>('/cover-letter/generate', {
-    method: 'POST', headers, body: JSON.stringify({ job_id: jobId }),
-  })
-}
-
-// ── Apply ─────────────────────────────────────────────────────────────────────
+// ── Applications ──────────────────────────────────────────────────────────────
 
 export async function applyToJob(jobId: string, coverLetter?: string) {
   const headers = await authHeaders()
-  const data = await request<any>('/apply', {
+  const data = await request<any>('/applications?action=apply', {
     method: 'POST', headers,
     body: JSON.stringify({ job_id: jobId, cover_letter: coverLetter }),
   })
   if (data.apply_url) window.open(data.apply_url, '_blank')
   return data
 }
-
-// ── Applications ──────────────────────────────────────────────────────────────
 
 export async function getApplications() {
   const headers = await authHeaders()
@@ -153,14 +112,35 @@ export async function getApplications() {
 
 export async function updateApplication(id: string, updates: any) {
   const headers = await authHeaders()
-  return request<any>(`/applications?id=${id}`, {
-    method: 'PATCH', headers, body: JSON.stringify(updates),
-  })
+  return request<any>(`/applications?id=${id}`, { method: 'PATCH', headers, body: JSON.stringify(updates) })
 }
 
 export async function deleteApplication(id: string) {
   const headers = await authHeaders()
   await request<any>(`/applications?id=${id}`, { method: 'DELETE', headers })
+}
+
+// ── AI (cover letter / interview prep / outreach) ─────────────────────────────
+
+export async function generateCoverLetter(jobId: string) {
+  const headers = await authHeaders()
+  return request<any>('/ai?action=cover-letter', {
+    method: 'POST', headers, body: JSON.stringify({ job_id: jobId }),
+  })
+}
+
+export async function getInterviewPrep(jobId: string) {
+  const headers = await authHeaders()
+  return request<any>('/ai?action=interview-prep', {
+    method: 'POST', headers, body: JSON.stringify({ job_id: jobId }),
+  })
+}
+
+export async function generateOutreachEmail(contact: any, company: any) {
+  const headers = await authHeaders()
+  return request<any>('/ai?action=outreach', {
+    method: 'POST', headers, body: JSON.stringify({ contact, company }),
+  })
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
@@ -170,22 +150,9 @@ export async function getStats() {
   return request<any>('/stats', { headers })
 }
 
-// ── Interview Prep ────────────────────────────────────────────────────────────
-
-export async function getInterviewPrep(jobId: string) {
+export async function getScraperHealth() {
   const headers = await authHeaders()
-  return request<any>('/interview-prep', {
-    method: 'POST', headers, body: JSON.stringify({ job_id: jobId }),
-  })
-}
-
-// ── Cold Outreach ─────────────────────────────────────────────────────────────
-
-export async function generateOutreachEmail(contact: any, company: any) {
-  const headers = await authHeaders()
-  return request<any>('/outreach', {
-    method: 'POST', headers, body: JSON.stringify({ contact, company }),
-  })
+  return request<any>('/stats?action=health', { headers })
 }
 
 // ── Alert Preferences ─────────────────────────────────────────────────────────
@@ -198,11 +165,4 @@ export async function getAlertPrefs() {
 export async function updateAlertPrefs(prefs: { frequency: string; min_score: number; enabled: boolean }) {
   const headers = await authHeaders()
   return request<any>('/alerts', { method: 'PUT', headers, body: JSON.stringify(prefs) })
-}
-
-// ── Scraper Health ────────────────────────────────────────────────────────────
-
-export async function getScraperHealth() {
-  const headers = await authHeaders()
-  return request<any>('/health', { headers })
 }

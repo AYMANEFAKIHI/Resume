@@ -1,16 +1,16 @@
 {
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/(.*)",     "destination": "/index.html" }
   ],
   "functions": {
-    "api/**/*.js": {
+    "api/*.js": {
       "maxDuration": 60
     }
   },
   "crons": [
     {
-      "path": "/api/alerts/send",
+      "path": "/api/alerts?action=send",
       "schedule": "0 7 * * *"
     }
   ]
