@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
-import { Search, Loader2, Zap, MapPin, ExternalLink, CheckCircle, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
+import { useEffect, useState, useCallback } from 'react'
+import { Search, Loader2, Zap, MapPin, ExternalLink, CheckCircle, ChevronDown,
+         ChevronUp, RefreshCw, Clock, Brain } from 'lucide-react'
 import { getJobs, searchJobs, generateCoverLetter, applyToJob, getApplications } from '../lib/api'
 import type { JobMatch, Application } from '../types'
 import CoverLetterModal from '../components/CoverLetterModal'
+import InterviewPrepModal from '../components/InterviewPrepModal'
 import toast from 'react-hot-toast'
 
 const SOURCE_CONFIG: Record<string, { color: string; label: string }> = {
@@ -22,20 +24,19 @@ const SOURCE_CONFIG: Record<string, { color: string; label: string }> = {
 }
 
 const MOROCCAN_SOURCES = ['rekrute','emploima','stagiairema','tanmiama','optioncarriere','khdmama','dreamjobma','menaraemploi','marocannonces','linkedin']
-
-const MOROCCAN_CITIES = ['Casablanca','Rabat','Marrakech','Fès','Tanger','Agadir','Meknès','Oujda','Kénitra','Tétouan','Laâyoune','Béni Mellal']
+const MOROCCAN_CITIES  = ['Casablanca','Rabat','Marrakech','Fès','Tanger','Agadir','Meknès','Oujda','Kénitra','Tétouan','Laâyoune','Béni Mellal']
 
 const MOROCCAN_PLATFORM_FILTERS = [
-  { key: 'rekrute',        label: 'Rekrute.ma'      },
-  { key: 'emploima',       label: 'Emploi.ma'       },
-  { key: 'stagiairema',    label: 'Stagiaire.ma'    },
-  { key: 'tanmiama',       label: 'Tanmia.ma'       },
-  { key: 'optioncarriere', label: 'OptionCarriere'  },
-  { key: 'khdmama',        label: 'Khdma.ma'        },
-  { key: 'dreamjobma',     label: 'Dreamjob.ma'     },
-  { key: 'menaraemploi',   label: 'Menara Emploi'   },
-  { key: 'marocannonces',  label: 'MarocAnnonces'   },
-  { key: 'linkedin',       label: 'LinkedIn'        },
+  { key: 'rekrute',        label: 'Rekrute.ma'     },
+  { key: 'emploima',       label: 'Emploi.ma'      },
+  { key: 'stagiairema',    label: 'Stagiaire.ma'   },
+  { key: 'tanmiama',       label: 'Tanmia.ma'      },
+  { key: 'optioncarriere', label: 'OptionCarriere' },
+  { key: 'khdmama',        label: 'Khdma.ma'       },
+  { key: 'dreamjobma',     label: 'Dreamjob.ma'    },
+  { key: 'menaraemploi',   label: 'Menara Emploi'  },
+  { key: 'marocannonces',  label: 'MarocAnnonces'  },
+  { key: 'linkedin',       label: 'LinkedIn'       },
 ]
 
 const INTL_PLATFORM_FILTERS = [
@@ -43,6 +44,21 @@ const INTL_PLATFORM_FILTERS = [
   { key: 'remoteok',  label: 'RemoteOK'  },
   { key: 'arbeitnow', label: 'Arbeitnow' },
 ]
+
+// ── Persist filters in sessionStorage (cleared on tab close) ──────────────────
+function usePersistedState<T>(key: string, defaultValue: T) {
+  const [state, setState] = useState<T>(() => {
+    try {
+      const v = sessionStorage.getItem('jobs_filter_' + key)
+      return v !== null ? JSON.parse(v) : defaultValue
+    } catch { return defaultValue }
+  })
+  const set = useCallback((val: T) => {
+    setState(val)
+    try { sessionStorage.setItem('jobs_filter_' + key, JSON.stringify(val)) } catch {}
+  }, [key])
+  return [state, set] as const
+}
 
 function ScoreRing({ score }: { score: number }) {
   const r = 18, circ = 2 * Math.PI * r
@@ -63,36 +79,55 @@ function ScoreRing({ score }: { score: number }) {
   )
 }
 
+function formatAge(dateStr: string) {
+  const mins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000)
+  if (mins < 60)  return `${mins}m ago`
+  if (mins < 1440) return `${Math.floor(mins / 60)}h ago`
+  return `${Math.floor(mins / 1440)}d ago`
+}
+
 export default function JobsPage() {
-  const [jobs, setJobs] = useState<JobMatch[]>([])
+  const [jobs, setJobs]               = useState<JobMatch[]>([])
   const [applications, setApplications] = useState<Application[]>([])
-  const [activeTab, setActiveTab] = useState<'all'|'morocco'|'remote'|'top'>('all')
-  const [cityFilter, setCityFilter] = useState<string|null>(null)
-  const [sourceFilter, setSourceFilter] = useState<string|null>(null)
-  const [loading, setLoading] = useState(true)
-  const [searching, setSearching] = useState(false)
-  const [expanded, setExpanded] = useState<string|null>(null)
-  const [clModal, setClModal] = useState<{job:JobMatch;letter:string}|null>(null)
+  const [cachedAt, setCachedAt]       = useState<string | null>(null)
+  const [fromCache, setFromCache]     = useState(false)
+
+  // Persisted filter state
+  const [activeTab, setActiveTab]     = usePersistedState<'all'|'morocco'|'remote'|'top'>('tab', 'all')
+  const [cityFilter, setCityFilter]   = usePersistedState<string|null>('city', null)
+  const [sourceFilter, setSourceFilter] = usePersistedState<string|null>('source', null)
+
+  const [loading, setLoading]         = useState(true)
+  const [searching, setSearching]     = useState(false)
+  const [expanded, setExpanded]       = useState<string|null>(null)
+  const [clModal, setClModal]         = useState<{job:JobMatch;letter:string}|null>(null)
+  const [prepModal, setPrepModal]     = useState<JobMatch|null>(null)
   const [generatingCL, setGeneratingCL] = useState<string|null>(null)
-  const [applying, setApplying] = useState<string|null>(null)
+  const [applying, setApplying]       = useState<string|null>(null)
 
   useEffect(() => {
     async function load() {
       try {
         const [j, a] = await Promise.allSettled([getJobs(), getApplications()])
-        if (j.status === 'fulfilled') setJobs(j.value.jobs)
+        if (j.status === 'fulfilled') {
+          setJobs(j.value.jobs)
+          if (j.value.cached_at) { setCachedAt(j.value.cached_at); setFromCache(true) }
+        }
         if (a.status === 'fulfilled') setApplications(a.value.applications)
       } catch {} finally { setLoading(false) }
     }
     load()
   }, [])
 
-  async function handleSearch() {
+  async function handleSearch(force = false) {
     setSearching(true)
     try {
-      const res = await searchJobs()
+      const res = await searchJobs({ force })
       setJobs(res.jobs)
-      toast.success(`Found ${res.total} internships!`)
+      setFromCache(res.from_cache ?? false)
+      if (res.cached_at) setCachedAt(res.cached_at)
+      if (res.from_cache) toast.success(`Showing cached results — ${res.total} internships`)
+      else toast.success(`Found ${res.total} internships!`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Search failed')
     } finally { setSearching(false) }
@@ -126,17 +161,17 @@ export default function JobsPage() {
     else { navigator.clipboard.writeText(text); toast.success('Link copied!') }
   }
 
-  const appliedJobIds = new Set(applications.map(a => a.job_id))
-  const moroccanJobs = jobs.filter(j => MOROCCAN_SOURCES.includes(j.job.source))
-  const remoteJobs = jobs.filter(j => j.job.location.toLowerCase().includes('remote'))
-  const topJobs = jobs.filter(j => j.match_score >= 80)
+  const appliedJobIds  = new Set(applications.map(a => a.job_id))
+  const moroccanJobs   = jobs.filter(j => MOROCCAN_SOURCES.includes(j.job.source))
+  const remoteJobs     = jobs.filter(j => j.job.location.toLowerCase().includes('remote'))
+  const topJobs        = jobs.filter(j => j.match_score >= 80)
 
   let filtered = activeTab === 'morocco' ? moroccanJobs
     : activeTab === 'remote' ? remoteJobs
     : activeTab === 'top' ? topJobs
     : jobs
 
-  if (cityFilter) filtered = filtered.filter(j => j.job.location.toLowerCase().includes(cityFilter.toLowerCase()))
+  if (cityFilter)   filtered = filtered.filter(j => j.job.location.toLowerCase().includes(cityFilter.toLowerCase()))
   if (sourceFilter) filtered = filtered.filter(j => j.job.source === sourceFilter)
 
   if (loading) return <div className="flex items-center justify-center h-screen"><Loader2 size={28} className="animate-spin text-accent"/></div>
@@ -150,17 +185,43 @@ export default function JobsPage() {
           <div className="flex items-center gap-4 text-sm text-white/40 mt-1 flex-wrap">
             <span>{filtered.length} positions</span>
             {moroccanJobs.length > 0 && <span className="text-amber-400">🇲🇦 {moroccanJobs.length} au Maroc</span>}
-            {remoteJobs.length > 0 && <span className="text-emerald-400">🌍 {remoteJobs.length} Remote</span>}
-            {topJobs.length > 0 && <span className="text-accent2">🔥 {topJobs.length} top matches</span>}
+            {remoteJobs.length > 0  && <span className="text-emerald-400">🌍 {remoteJobs.length} Remote</span>}
+            {topJobs.length > 0     && <span className="text-accent2">🔥 {topJobs.length} top matches</span>}
           </div>
         </div>
-        <button onClick={handleSearch} disabled={searching} className="btn btn-primary">
-          {searching ? <><Loader2 size={15} className="animate-spin"/> Searching…</>
-            : jobs.length > 0 ? <><RefreshCw size={15}/> Refresh</> : <><Search size={15}/> Find internships</>}
-        </button>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Cache status indicator */}
+          {cachedAt && (
+            <div className="flex items-center gap-2">
+              <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-xl border ${fromCache ? 'bg-amber-400/5 border-amber-400/15 text-amber-400/70' : 'bg-emerald-400/5 border-emerald-400/15 text-emerald-400/70'}`}>
+                <Clock size={11} />
+                {fromCache ? `Cached ${formatAge(cachedAt)}` : 'Fresh results'}
+              </div>
+              {fromCache && (
+                <button
+                  onClick={() => handleSearch(true)}
+                  disabled={searching}
+                  className="btn btn-ghost btn-sm text-xs flex items-center gap-1"
+                  title="Force refresh — ignores cache"
+                >
+                  <RefreshCw size={11} /> Refresh now
+                </button>
+              )}
+            </div>
+          )}
+
+          <button onClick={() => handleSearch(false)} disabled={searching} className="btn btn-primary">
+            {searching
+              ? <><Loader2 size={15} className="animate-spin"/> Searching…</>
+              : jobs.length > 0
+                ? <><RefreshCw size={15}/> Refresh</>
+                : <><Search size={15}/> Find internships</>}
+          </button>
+        </div>
       </div>
 
-      {/* Searching */}
+      {/* Searching animation */}
       {searching && (
         <div className="card text-center py-14 mb-6">
           <div className="flex justify-center gap-2 mb-5">
@@ -188,7 +249,6 @@ export default function JobsPage() {
       {/* Filters */}
       {jobs.length > 0 && !searching && (
         <div className="space-y-3 mb-6">
-          {/* Main tabs */}
           <div className="flex gap-2 flex-wrap">
             {[
               {key:'all',     label:`All (${jobs.length})`},
@@ -205,7 +265,6 @@ export default function JobsPage() {
             ))}
           </div>
 
-          {/* City filter — only when Morocco tab */}
           {activeTab === 'morocco' && (
             <div className="flex gap-2 flex-wrap items-center">
               <span className="text-white/25 text-xs shrink-0">🏙️ City:</span>
@@ -222,7 +281,6 @@ export default function JobsPage() {
             </div>
           )}
 
-          {/* Platform filters */}
           <div className="space-y-2">
             <div className="flex gap-2 flex-wrap items-center">
               <span className="text-white/25 text-xs shrink-0">🇲🇦 Platform:</span>
@@ -254,12 +312,12 @@ export default function JobsPage() {
       {!searching && filtered.length > 0 && (
         <div className="space-y-3">
           {filtered.map(match => {
-            const isApplied = appliedJobIds.has(match.job_id)
-            const isExpanded = expanded === match.id
-            const isApplying = applying === match.id
+            const isApplied    = appliedJobIds.has(match.job_id)
+            const isExpanded   = expanded === match.id
+            const isApplying   = applying === match.id
             const isGenerating = generatingCL === match.id
-            const srcCfg = SOURCE_CONFIG[match.job.source] ?? { color: 'bg-surface2 text-white/40 border-white/10', label: match.job.source }
-            const isMorocco = MOROCCAN_SOURCES.includes(match.job.source)
+            const srcCfg       = SOURCE_CONFIG[match.job.source] ?? { color: 'bg-surface2 text-white/40 border-white/10', label: match.job.source }
+            const isMorocco    = MOROCCAN_SOURCES.includes(match.job.source)
 
             return (
               <div key={match.id}
@@ -315,6 +373,16 @@ export default function JobsPage() {
                           {isGenerating ? <><Loader2 size={12} className="animate-spin"/> Generating…</> : <><Zap size={12}/> Apply + Letter</>}
                         </button>
                       )}
+
+                      {/* ✅ Interview prep button — available on every job */}
+                      <button
+                        onClick={() => setPrepModal(match)}
+                        className="btn btn-ghost btn-sm flex items-center gap-1.5 border border-amber-400/20 text-amber-400/70 hover:text-amber-400 hover:border-amber-400/40 hover:bg-amber-400/5"
+                        title="Generate interview prep for this role"
+                      >
+                        <Brain size={12}/> Prep
+                      </button>
+
                       {isApplying && <span className="flex items-center gap-1.5 text-amber-400 text-xs font-medium"><Loader2 size={12} className="animate-spin"/> Opening…</span>}
                       <button onClick={() => setExpanded(isExpanded ? null : match.id)} className="btn btn-ghost btn-sm">
                         {isExpanded ? <><ChevronUp size={12}/> Less</> : <><ChevronDown size={12}/> Details</>}
@@ -340,7 +408,7 @@ export default function JobsPage() {
               <span key={s} className="px-2 py-0.5 rounded-full border border-white/[0.06] bg-surface">{s}</span>
             ))}
           </div>
-          <button onClick={handleSearch} className="btn btn-primary btn-lg"><Search size={16}/> Find internships</button>
+          <button onClick={() => handleSearch(false)} className="btn btn-primary btn-lg"><Search size={16}/> Find internships</button>
         </div>
       )}
 
@@ -351,6 +419,11 @@ export default function JobsPage() {
       {clModal && (
         <CoverLetterModal job={clModal.job} letter={clModal.letter}
           onClose={() => setClModal(null)} onApply={(letter) => handleApply(clModal.job, letter)}/>
+      )}
+
+      {/* ✅ Interview prep modal — wired to jobs page */}
+      {prepModal && (
+        <InterviewPrepModal job={prepModal} onClose={() => setPrepModal(null)} />
       )}
     </div>
   )
