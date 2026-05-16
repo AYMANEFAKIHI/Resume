@@ -2,7 +2,6 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useEffect, useState } from 'react'
 import { Zap, Search, FileText, Send, ArrowRight, Star, Users, Quote } from 'lucide-react'
-import { supabase } from '../lib/supabase'
 
 const FEATURES = [
   { icon: FileText, title: 'AI Resume Analysis',       desc: 'Upload your CV and AI extracts your skills, experience, and target roles in seconds.',                           color: 'text-accent2',     bg: 'bg-accent/10'      },
@@ -53,17 +52,10 @@ export default function LandingPage() {
 
   // Fetch live user count from Supabase (public RPC or count query)
   useEffect(() => {
-    async function fetchCount() {
-      try {
-        const { count } = await supabase
-          .from('candidate_profiles')
-          .select('*', { count: 'exact', head: true })
-        if (count !== null) setUserCount(count)
-      } catch {
-        setUserCount(1200) // fallback estimate
-      }
-    }
-    fetchCount()
+    fetch('/api/public-stats')
+      .then(r => r.json())
+      .then(d => { if (d.user_count) setUserCount(d.user_count) })
+      .catch(() => setUserCount(1200))
   }, [])
 
   function formatCount(n: number) {
