@@ -1,39 +1,93 @@
-import { useState, useMemo, useEffect } from 'react'
-import { Search, Mail, Phone, MapPin, Users, Copy, X, ChevronDown, ChevronUp, Star, Loader2 } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Search, Mail, Phone, MapPin, Users, Copy, ChevronDown, ChevronUp, Star, Loader2, Sparkles, Check } from 'lucide-react'
+import { generateOutreachEmail } from '../lib/api'
+import toast from 'react-hot-toast'
 
 interface Contact { name: string; role: string; email: string; phone: string; is_hr: boolean }
 interface Company { name: string; city: string; address: string; contacts: Contact[]; contact_count: number; has_email: boolean }
 
+// ── Pagination constants ──────────────────────────────────────────────────────
+const PAGE_SIZE = 60
+
 export default function ContactsPage() {
   const [companies, setCompanies] = useState<Company[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(0)
   const [loadingData, setLoadingData] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [cityFilter, setCityFilter] = useState<string | null>(null)
   const [emailOnly, setEmailOnly] = useState(false)
   const [hrOnly, setHrOnly] = useState(false)
+
   const [expanded, setExpanded] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+
+  // Outreach state: key = `${company.name}:${contact.name}`
+  const [outreachLoading, setOutreachLoading] = useState<string | null>(null)
+  const [outreachEmail, setOutreachEmail] = useState<{ key: string; text: string } | null>(null)
+  const [outreachCopied, setOutreachCopied] = useState(false)
+
+  // All cities for filter — loaded once from full dataset
+  const [allCities, setAllCities] = useState<string[]>([])
+
+  // ── Debounce search ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350)
+    return () => clearTimeout(t)
+  }, [search])
+
+  // ── Reset page on filter change ───────────────────────────────────────────
+  useEffect(() => {
+    setPage(0)
+    setCompanies([])
+  }, [debouncedSearch, cityFilter, emailOnly, hrOnly])
+
+  // ── Load data (client-side from contacts_db.json, paginated in memory) ────
+  // NOTE: If you've migrated contacts_db.json to Supabase (see migration SQL),
+  // replace this with an API call to /api/contacts?search=...&page=...
+  // For now this loads the JSON once and filters/paginates in memory.
+  const [allData, setAllData] = useState<Company[]>([])
+  const [dataLoaded, setDataLoaded] = useState(false)
 
   useEffect(() => {
     fetch('/contacts_db.json')
       .then(r => r.json())
-      .then(data => setCompanies(data))
-      .catch(() => {})
+      .then((data: Company[]) => {
+        setAllData(data)
+        const cities = [...new Set(data.map(c => c.city).filter(Boolean))].sort()
+        setAllCities(cities)
+        setDataLoaded(true)
+      })
+      .catch(() => toast.error('Failed to load contacts'))
       .finally(() => setLoadingData(false))
   }, [])
 
-  const ALL_CITIES = useMemo(() =>
-    [...new Set(companies.map(c => c.city).filter(Boolean))].sort(), [companies])
-
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim()
-    return companies.filter(c => {
-      const matchSearch = !q || c.name.toLowerCase().includes(q) || c.city.toLowerCase().includes(q) ||
-        c.contacts.some(ct => ct.role.toLowerCase().includes(q) || ct.name.toLowerCase().includes(q) || ct.email.toLowerCase().includes(q))
-      return matchSearch && (!cityFilter || c.city === cityFilter) &&
-        (!emailOnly || c.has_email) && (!hrOnly || c.contacts.some(ct => ct.is_hr))
+  // ── Filter + paginate in memory ───────────────────────────────────────────
+  useEffect(() => {
+    if (!dataLoaded) return
+    const q = debouncedSearch.toLowerCase().trim()
+    const filtered = allData.filter(c => {
+      const matchSearch = !q ||
+        c.name.toLowerCase().includes(q) ||
+        c.city.toLowerCase().includes(q) ||
+        c.contacts.some(ct =>
+          ct.role.toLowerCase().includes(q) ||
+          ct.name.toLowerCase().includes(q) ||
+          ct.email.toLowerCase().includes(q)
+        )
+      return (
+        matchSearch &&
+        (!cityFilter || c.city === cityFilter) &&
+        (!emailOnly || c.has_email) &&
+        (!hrOnly || c.contacts.some(ct => ct.is_hr))
+      )
     })
-  }, [companies, search, cityFilter, emailOnly, hrOnly])
+    setTotal(filtered.length)
+    setCompanies(filtered.slice(0, (page + 1) * PAGE_SIZE))
+  }, [allData, dataLoaded, debouncedSearch, cityFilter, emailOnly, hrOnly, page])
 
   function copyText(text: string, key: string) {
     navigator.clipboard.writeText(text)
@@ -41,8 +95,30 @@ export default function ContactsPage() {
     setTimeout(() => setCopied(null), 2000)
   }
 
-  const totalContacts = companies.reduce((s, c) => s + c.contact_count, 0)
-  const totalWithEmail = companies.filter(c => c.has_email).length
+  async function handleGenerateOutreach(contact: Contact, company: Company) {
+    const key = `${company.name}:${contact.name}`
+    setOutreachLoading(key)
+    setOutreachEmail(null)
+    try {
+      const res = await generateOutreachEmail(contact, company)
+      setOutreachEmail({ key, text: res.email })
+    } catch {
+      toast.error('Failed to generate outreach email')
+    } finally {
+      setOutreachLoading(null)
+    }
+  }
+
+  function copyOutreach() {
+    if (!outreachEmail) return
+    navigator.clipboard.writeText(outreachEmail.text)
+    setOutreachCopied(true)
+    setTimeout(() => setOutreachCopied(false), 2000)
+  }
+
+  const totalContacts = allData.reduce((s, c) => s + c.contact_count, 0)
+  const totalWithEmail = allData.filter(c => c.has_email).length
+  const hasMore = companies.length < total
 
   if (loadingData) return (
     <div className="flex items-center justify-center h-screen">
@@ -55,182 +131,213 @@ export default function ContactsPage() {
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
+      {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2 flex-wrap">
           <h1 className="font-display font-bold text-3xl">Contacts Database 🇲🇦</h1>
-          <span className="px-3 py-1 rounded-full text-xs font-medium bg-emerald-400/10 border border-emerald-400/20 text-emerald-400">
-            {companies.length} companies · {totalContacts.toLocaleString()} contacts
-          </span>
         </div>
-        <p className="text-white/40 text-sm mb-3">Direct contacts at Moroccan companies — reach out personally for internship opportunities.</p>
-        <div className="p-3 rounded-xl bg-amber-400/5 border border-amber-400/15 text-xs text-white/50 leading-relaxed">
-          ⚡ <strong className="text-white/70">Pro tip:</strong> Email the HR/RH contact directly with your CV and a short personalized message. A direct email beats any job board application.
+        <div className="flex items-center gap-4 text-sm text-white/40 flex-wrap">
+          <span className="flex items-center gap-1.5"><Users size={13} /> {allData.length} companies</span>
+          <span className="flex items-center gap-1.5"><Mail size={13} /> {totalContacts.toLocaleString()} contacts</span>
+          <span className="flex items-center gap-1.5"><Star size={13} /> {totalWithEmail} with email</span>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        {[
-          { label: 'Companies',      value: companies.length, color: 'text-accent2'     },
-          { label: 'Total contacts', value: totalContacts,    color: 'text-white'       },
-          { label: 'With email',     value: totalWithEmail,   color: 'text-emerald-400' },
-          { label: 'Cities',         value: ALL_CITIES.length, color: 'text-amber-400'  },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="card text-center py-4">
-            <div className={`font-display font-bold text-2xl ${color} mb-1`}>{value.toLocaleString()}</div>
-            <div className="text-white/30 text-xs">{label}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Filters */}
-      <div className="space-y-3 mb-6">
-        <div className="relative">
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/30" />
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search company, city, role, contact name, email..." className="input pl-10 w-full" />
-          {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"><X size={14}/></button>}
+      {/* Search & filters */}
+      <div className="flex flex-wrap gap-3 mb-6">
+        <div className="relative flex-1 min-w-60">
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/25" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search company, role, name, email..."
+            className="input pl-10"
+          />
         </div>
 
-        <div className="flex gap-2 flex-wrap items-center">
-          <button onClick={() => setEmailOnly(!emailOnly)}
-            className={`px-3 py-1.5 rounded-full text-xs border transition-all flex items-center gap-1.5
-              ${emailOnly ? 'bg-emerald-400/15 border-emerald-400/30 text-emerald-400' : 'bg-surface border-white/[0.07] text-white/40 hover:text-white'}`}>
-            <Mail size={11}/> Has email ({totalWithEmail})
-          </button>
-          <button onClick={() => setHrOnly(!hrOnly)}
-            className={`px-3 py-1.5 rounded-full text-xs border transition-all flex items-center gap-1.5
-              ${hrOnly ? 'bg-accent/15 border-accent/30 text-accent2' : 'bg-surface border-white/[0.07] text-white/40 hover:text-white'}`}>
-            <Star size={11}/> HR/RH contacts only
-          </button>
-          {(emailOnly || hrOnly || cityFilter) && (
-            <button onClick={() => { setEmailOnly(false); setHrOnly(false); setCityFilter(null) }}
-              className="px-3 py-1.5 rounded-full text-xs border border-red-400/20 text-red-400 hover:bg-red-400/10 transition-all flex items-center gap-1">
-              <X size={11}/> Clear
-            </button>
-          )}
-        </div>
+        <select
+          value={cityFilter ?? ''}
+          onChange={e => setCityFilter(e.target.value || null)}
+          className="input w-40"
+        >
+          <option value="">All cities</option>
+          {allCities.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
 
-        <div className="flex gap-2 flex-wrap items-center">
-          <span className="text-white/25 text-xs shrink-0">🏙️ City:</span>
-          <button onClick={() => setCityFilter(null)}
-            className={`px-3 py-1 rounded-full text-xs border transition-all
-              ${!cityFilter ? 'bg-amber-400/15 border-amber-400/30 text-amber-400' : 'bg-surface border-white/[0.07] text-white/30 hover:text-white'}`}>
-            All
-          </button>
-          {ALL_CITIES.slice(0, 15).map(city => (
-            <button key={city} onClick={() => setCityFilter(cityFilter === city ? null : city)}
-              className={`px-3 py-1 rounded-full text-xs border transition-all
-                ${cityFilter === city ? 'bg-amber-400/15 border-amber-400/30 text-amber-400' : 'bg-surface border-white/[0.07] text-white/30 hover:text-white'}`}>
-              {city}
-            </button>
-          ))}
-        </div>
+        <button
+          onClick={() => setEmailOnly(v => !v)}
+          className={`btn btn-sm ${emailOnly ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          <Mail size={13} /> Email only
+        </button>
+
+        <button
+          onClick={() => setHrOnly(v => !v)}
+          className={`btn btn-sm ${hrOnly ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          <Star size={13} /> HR only
+        </button>
       </div>
 
-      <div className="text-white/30 text-sm mb-4">
-        Showing <span className="text-white/60 font-medium">{Math.min(filtered.length, 200)}</span>
-        {filtered.length > 200 ? ` of ${filtered.length}` : ''} companies
-      </div>
+      {/* Results count */}
+      <p className="text-xs text-white/30 mb-4">
+        Showing {companies.length} of {total} companies
+        {debouncedSearch && ` matching "${debouncedSearch}"`}
+      </p>
 
-      {/* Company list */}
-      <div className="space-y-2">
-        {filtered.slice(0, 200).map(company => {
-          const isExpanded = expanded === company.name
-          const hrContacts = company.contacts.filter(c => c.is_hr)
-          const emailContacts = company.contacts.filter(c => c.email)
-          const copyKey = 'co-' + company.name
-
-          return (
-            <div key={company.name}
-              className={`card p-0 overflow-hidden transition-all duration-200 ${isExpanded ? 'border-white/15' : 'hover:border-white/10'}`}>
-              <div className="flex items-center justify-between p-4 cursor-pointer gap-3"
-                onClick={() => setExpanded(isExpanded ? null : company.name)}>
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-accent/20 to-accent2/20 border border-accent/10 flex items-center justify-center shrink-0">
-                    <span className="font-display font-bold text-accent2 text-xs">{company.name.slice(0,2).toUpperCase()}</span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium text-sm flex items-center gap-2 flex-wrap">
-                      {company.name}
-                      {hrContacts.length > 0 && <span className="px-1.5 py-0.5 rounded text-xs bg-accent/10 text-accent2 border border-accent/20">HR ✓</span>}
-                    </div>
-                    <div className="flex items-center gap-3 text-white/30 text-xs mt-0.5 flex-wrap">
-                      {company.city && <span className="flex items-center gap-1"><MapPin size={10}/>{company.city}</span>}
-                      <span className="flex items-center gap-1"><Users size={10}/>{company.contact_count}</span>
-                      {emailContacts.length > 0 && <span className="flex items-center gap-1 text-emerald-400/60"><Mail size={10}/>{emailContacts.length} email{emailContacts.length > 1 ? 's' : ''}</span>}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {emailContacts.length > 0 && (
-                    <button onClick={e => { e.stopPropagation(); const emails = emailContacts.map(c => c.email).join(', '); copyText(emails, copyKey) }}
-                      className={`btn btn-sm text-xs py-1 ${copied === copyKey ? 'bg-emerald-400/15 border-emerald-400/30 text-emerald-400 border' : 'btn-ghost'}`}>
-                      <Copy size={11}/> {copied === copyKey ? 'Copied!' : 'Copy emails'}
-                    </button>
+      {/* Company cards */}
+      <div className="space-y-3">
+        {companies.map((company) => (
+          <div key={company.name} className="card">
+            {/* Company header row */}
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <h3 className="font-display font-semibold text-base">{company.name}</h3>
+                  {company.has_email && (
+                    <span className="tag-green text-xs">has email</span>
                   )}
-                  {isExpanded ? <ChevronUp size={14} className="text-white/30"/> : <ChevronDown size={14} className="text-white/30"/>}
+                  {company.contacts.some(c => c.is_hr) && (
+                    <span className="tag-accent text-xs">HR contact</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 text-xs text-white/35 flex-wrap">
+                  {company.city && (
+                    <span className="flex items-center gap-1"><MapPin size={11} />{company.city}</span>
+                  )}
+                  <span className="flex items-center gap-1"><Users size={11} />{company.contact_count} contact{company.contact_count !== 1 ? 's' : ''}</span>
                 </div>
               </div>
 
-              {isExpanded && (
-                <div className="border-t border-white/[0.06]">
-                  {company.address && company.address !== 'nan' && (
-                    <div className="px-4 py-2 text-xs text-white/20 flex items-start gap-1.5 bg-white/[0.01]">
-                      <MapPin size={10} className="mt-0.5 shrink-0"/> {company.address}
-                    </div>
-                  )}
-                  <div className="divide-y divide-white/[0.04]">
-                    {company.contacts.map((contact, i) => {
-                      const emailKey = `em-${i}-${company.name}`
-                      const phoneKey = `ph-${i}-${company.name}`
-                      return (
-                        <div key={i} className={`px-4 py-3 flex items-center justify-between gap-3 flex-wrap ${contact.is_hr ? 'bg-accent/[0.03] border-l-2 border-l-accent/20' : ''}`}>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm font-medium">{contact.name}</span>
-                              {contact.is_hr && <span className="px-1.5 py-0.5 rounded text-xs bg-accent/10 text-accent2 border border-accent/20">HR/RH</span>}
-                            </div>
-                            <div className="text-white/35 text-xs mt-0.5">{contact.role}</div>
+              <button
+                onClick={() => setExpanded(prev => prev === company.name ? null : company.name)}
+                className="btn btn-ghost btn-sm shrink-0"
+              >
+                {expanded === company.name ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                {expanded === company.name ? 'Hide' : 'Show'}
+              </button>
+            </div>
+
+            {/* Expanded contacts */}
+            {expanded === company.name && (
+              <div className="mt-4 pt-4 border-t border-white/[0.06] space-y-3">
+                {company.contacts.map((contact, i) => {
+                  const outreachKey = `${company.name}:${contact.name}`
+                  const isGenerating = outreachLoading === outreachKey
+                  const hasOutreach = outreachEmail?.key === outreachKey
+
+                  return (
+                    <div key={i} className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.04]">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-medium text-white/80">{contact.name}</span>
+                            {contact.is_hr && <span className="tag-accent text-xs">HR</span>}
                           </div>
-                          <div className="flex items-center gap-2 flex-wrap shrink-0">
-                            {contact.phone && contact.phone !== 'nan' && (
-                              <button onClick={() => copyText(contact.phone, phoneKey)}
-                                className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg border transition-all
-                                  ${copied === phoneKey ? 'bg-emerald-400/15 border-emerald-400/30 text-emerald-400' : 'bg-surface2 border-white/[0.07] text-white/30 hover:text-white'}`}>
-                                <Phone size={10}/> {contact.phone}
+                          <div className="text-xs text-white/35 mb-2">{contact.role}</div>
+                          <div className="flex flex-wrap gap-2">
+                            {contact.email && (
+                              <button
+                                onClick={() => copyText(contact.email, `email-${i}-${company.name}`)}
+                                className="flex items-center gap-1.5 text-xs text-white/50 hover:text-white transition-colors"
+                              >
+                                {copied === `email-${i}-${company.name}` ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                                {contact.email}
                               </button>
                             )}
-                            {contact.email && contact.email !== 'nan' && (
-                              <button onClick={() => copyText(contact.email, emailKey)}
-                                className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border transition-all
-                                  ${copied === emailKey ? 'bg-emerald-400/15 border-emerald-400/30 text-emerald-400' : 'bg-surface2 border-white/[0.07] text-white/50 hover:text-white hover:border-white/20'}`}>
-                                <Mail size={10}/> {copied === emailKey ? 'Copied!' : contact.email}
+                            {contact.phone && (
+                              <button
+                                onClick={() => copyText(contact.phone, `phone-${i}-${company.name}`)}
+                                className="flex items-center gap-1.5 text-xs text-white/50 hover:text-white transition-colors"
+                              >
+                                {copied === `phone-${i}-${company.name}` ? <Check size={11} className="text-emerald-400" /> : <Phone size={11} />}
+                                {contact.phone}
                               </button>
                             )}
                           </div>
                         </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          )
-        })}
 
-        {filtered.length > 200 && (
-          <div className="text-center py-6 card text-white/30 text-sm">
-            Showing 200 of {filtered.length} — refine your search to see more
+                        {/* Outreach generator button */}
+                        <button
+                          onClick={() => handleGenerateOutreach(contact, company)}
+                          disabled={isGenerating}
+                          className="btn btn-ghost btn-sm shrink-0 flex items-center gap-1.5"
+                        >
+                          {isGenerating
+                            ? <><Loader2 size={12} className="animate-spin" /> Generating...</>
+                            : <><Sparkles size={12} className="text-accent2" /> Outreach email</>
+                          }
+                        </button>
+                      </div>
+
+                      {/* Generated outreach email */}
+                      {hasOutreach && (
+                        <div className="mt-3 p-3 rounded-xl bg-accent/5 border border-accent/15">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs text-accent2 font-medium">Generated outreach email</span>
+                            <button
+                              onClick={copyOutreach}
+                              className="flex items-center gap-1 text-xs text-white/40 hover:text-white transition-colors"
+                            >
+                              {outreachCopied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                              {outreachCopied ? 'Copied!' : 'Copy'}
+                            </button>
+                          </div>
+                          <p className="text-xs text-white/60 leading-relaxed whitespace-pre-line">{outreachEmail.text}</p>
+                          <div className="flex gap-2 mt-2">
+                            {contact.email && (
+                              <a
+                                href={`mailto:${contact.email}?subject=Candidature%20stage&body=${encodeURIComponent(outreachEmail.text)}`}
+                                className="btn btn-sm btn-primary text-xs"
+                              >
+                                <Mail size={11} /> Open in mail
+                              </a>
+                            )}
+                            <button
+                              onClick={() => setOutreachEmail(null)}
+                              className="btn btn-ghost btn-sm text-xs"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
-        )}
-        {filtered.length === 0 && (
-          <div className="text-center py-20 text-white/30">
-            <Users size={40} className="mx-auto mb-4 opacity-20"/>
-            <p>No companies match your search.</p>
-          </div>
-        )}
+        ))}
       </div>
+
+      {/* Load more */}
+      {hasMore && (
+        <div className="text-center mt-8">
+          <button
+            onClick={() => setPage(p => p + 1)}
+            disabled={loadingMore}
+            className="btn btn-secondary"
+          >
+            {loadingMore ? <Loader2 size={14} className="animate-spin" /> : null}
+            Load more ({total - companies.length} remaining)
+          </button>
+        </div>
+      )}
+
+      {!hasMore && companies.length > 0 && (
+        <p className="text-center text-xs text-white/20 mt-8">All {total} companies shown</p>
+      )}
+
+      {total === 0 && !loadingData && (
+        <div className="text-center py-16">
+          <Users size={40} className="text-white/10 mx-auto mb-4" />
+          <p className="text-white/40">No companies match your filters.</p>
+          <button onClick={() => { setSearch(''); setCityFilter(null); setEmailOnly(false); setHrOnly(false) }} className="btn btn-ghost btn-sm mt-3">
+            Clear filters
+          </button>
+        </div>
+      )}
     </div>
   )
 }

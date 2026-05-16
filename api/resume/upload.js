@@ -1,5 +1,5 @@
 import { verifyToken, upsertProfile } from '../_db.js'
-import { analyzeResume } from '../_claude.js'
+import { analyzeResume, extractDocxText } from '../_claude.js'
 
 export const config = {
   api: { bodyParser: { sizeLimit: '10mb' } }
@@ -13,7 +13,6 @@ function cleanText(text) {
 }
 
 async function extractPDFText(base64Data) {
-  // Dynamically import pdf-parse
   const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default
   const buffer = Buffer.from(base64Data, 'base64')
   const data = await pdfParse(buffer)
@@ -24,21 +23,27 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
   try {
     const user = await verifyToken(req)
-    const { text, pdf_base64, filename } = req.body ?? {}
+    const { text, pdf_base64, docx_base64, filename } = req.body ?? {}
 
     let rawText = ''
 
     if (pdf_base64) {
-      // PDF uploaded as base64
       try {
         rawText = await extractPDFText(pdf_base64)
       } catch (e) {
         return res.status(400).json({ error: 'Failed to parse PDF: ' + e.message })
       }
+    } else if (docx_base64) {
+      // ✅ FIX: properly extract DOCX text via mammoth
+      try {
+        rawText = await extractDocxText(docx_base64)
+      } catch (e) {
+        return res.status(400).json({ error: 'Failed to parse DOCX: ' + e.message })
+      }
     } else if (text) {
       rawText = text
     } else {
-      return res.status(400).json({ error: 'Provide text or pdf_base64' })
+      return res.status(400).json({ error: 'Provide text, pdf_base64, or docx_base64' })
     }
 
     const clean = cleanText(rawText)

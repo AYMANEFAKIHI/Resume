@@ -7,5 +7,11 @@
     "api/**/*.js": {
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/alerts/send",
+      "schedule": "0 7 * * *"
+    }
+  ]
 }

@@ -23,15 +23,10 @@ function cleanText(text: string): string {
     .trim()
 }
 
-// Convert file to base64
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      // Remove data URL prefix (data:application/pdf;base64,)
-      resolve(result.split(',')[1])
-    }
+    reader.onload = () => resolve((reader.result as string).split(',')[1])
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
@@ -42,16 +37,26 @@ function fileToBase64(file: File): Promise<string> {
 export async function uploadResume(file: File) {
   const headers = await authHeaders()
 
-  const isPDF = file.type === 'application/pdf' || file.name.endsWith('.pdf')
-  const isTXT = file.type === 'text/plain' || file.name.endsWith('.txt')
+  const isPDF  = file.type === 'application/pdf' || file.name.endsWith('.pdf')
+  const isDOCX = file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.endsWith('.docx')
+  const isTXT  = file.type === 'text/plain' || file.name.endsWith('.txt')
 
   if (isPDF) {
-    // Send PDF as base64 — server uses pdf-parse to extract text
     const pdf_base64 = await fileToBase64(file)
     return request<any>('/resume/upload', {
       method: 'POST',
       headers,
       body: JSON.stringify({ pdf_base64, filename: file.name }),
+    })
+  }
+
+  if (isDOCX) {
+    // ✅ FIX: send DOCX as base64 for server-side mammoth extraction
+    const docx_base64 = await fileToBase64(file)
+    return request<any>('/resume/upload', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ docx_base64, filename: file.name }),
     })
   }
 
@@ -64,7 +69,7 @@ export async function uploadResume(file: File) {
     })
   }
 
-  // DOCX — read as text fallback
+  // Fallback: try reading as text
   const text = await file.text()
   return request<any>('/resume/upload', {
     method: 'POST',
@@ -101,9 +106,14 @@ export async function getResumeTips() {
   return request<any>('/resume/tips', { headers })
 }
 
+export async function getResumeImprovement() {
+  const headers = await authHeaders()
+  return request<any>('/resume/tips', { method: 'POST', headers, body: JSON.stringify({}) })
+}
+
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 
-export async function searchJobs(params?: any) {
+export async function searchJobs(params?: { roles?: string[]; locations?: string[]; force?: boolean }) {
   const headers = await authHeaders()
   return request<any>('/jobs', { method: 'POST', headers, body: JSON.stringify(params ?? {}) })
 }
@@ -158,4 +168,41 @@ export async function deleteApplication(id: string) {
 export async function getStats() {
   const headers = await authHeaders()
   return request<any>('/stats', { headers })
+}
+
+// ── Interview Prep ────────────────────────────────────────────────────────────
+
+export async function getInterviewPrep(jobId: string) {
+  const headers = await authHeaders()
+  return request<any>('/interview-prep', {
+    method: 'POST', headers, body: JSON.stringify({ job_id: jobId }),
+  })
+}
+
+// ── Cold Outreach ─────────────────────────────────────────────────────────────
+
+export async function generateOutreachEmail(contact: any, company: any) {
+  const headers = await authHeaders()
+  return request<any>('/outreach', {
+    method: 'POST', headers, body: JSON.stringify({ contact, company }),
+  })
+}
+
+// ── Alert Preferences ─────────────────────────────────────────────────────────
+
+export async function getAlertPrefs() {
+  const headers = await authHeaders()
+  return request<any>('/alerts', { headers })
+}
+
+export async function updateAlertPrefs(prefs: { frequency: string; min_score: number; enabled: boolean }) {
+  const headers = await authHeaders()
+  return request<any>('/alerts', { method: 'PUT', headers, body: JSON.stringify(prefs) })
+}
+
+// ── Scraper Health ────────────────────────────────────────────────────────────
+
+export async function getScraperHealth() {
+  const headers = await authHeaders()
+  return request<any>('/health', { headers })
 }
